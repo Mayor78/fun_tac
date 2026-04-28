@@ -312,26 +312,7 @@ export default function OnlineMenu() {
         </div>
       </div>
 
-      {/* Firebase configuration notice */}
-      <div style={{ 
-        marginTop: 24, 
-        padding: 16, 
-        borderRadius: 12, 
-        background: 'rgba(255,204,77,0.06)', 
-        border: '1px solid rgba(255,204,77,0.15)',
-      }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 18 }}>⚠️</span>
-          <div>
-            <p style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600, marginBottom: 4 }}>
-              Firebase Configuration Required
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Update <code style={{ fontFamily: 'JetBrains Mono, monospace', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>src/lib/firebase.js</code> with your Firebase project credentials from the Firebase Console.
-            </p>
-          </div>
-        </div>
-      </div>
+     
     </div>
   );
 }

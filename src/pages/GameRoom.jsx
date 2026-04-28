@@ -1,11 +1,11 @@
-// src/pages/GameRoom.jsx - COMPLETE FIXED VERSION
+// src/pages/GameRoom.jsx - COMPLETE WITH FLOATING CHAT
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  subscribeToGame, joinGame, makeOnlineMove, resetGame, leaveGame,
-  sendChatMessage, subscribeToChat
+  subscribeToGame, joinGame, makeOnlineMove, resetGame, leaveGame
 } from '../lib/gameService';
 import { getPlayerId, getPlayerName } from '../utils/gameLogic';
+import FloatingChat from '../components/FloatingChat';
 import toast from 'react-hot-toast';
 
 export default function GameRoom() {
@@ -24,17 +24,8 @@ export default function GameRoom() {
   const [showResultModal, setShowResultModal] = useState(false);
   const [resultMessage, setResultMessage] = useState({ title: '', message: '', emoji: '', color: '' });
   const [timeRemaining, setTimeRemaining] = useState(60);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [showChat, setShowChat] = useState(true);
   const [gameEnded, setGameEnded] = useState(false);
-  const chatEndRef = useRef(null);
   const timerInterval = useRef(null);
-
-  // Auto-scroll chat
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
 
   // Timer effect
   useEffect(() => {
@@ -131,111 +122,88 @@ export default function GameRoom() {
     return () => unsubscribe();
   }, [gameId, myRole, game?.status, gameEnded]);
 
-  // Subscribe to chat
-  useEffect(() => {
-    if (!gameId) return;
-    const unsubscribe = subscribeToChat(gameId, (messages) => {
-      setChatMessages(messages);
-    });
-    return () => unsubscribe();
-  }, [gameId]);
-
-const handleMove = async (index) => {
-  console.log('🎯 handleMove called - index:', index);
-  console.log('Game state:', { status: game?.status, currentTurn: game?.currentTurn, myRole });
-  
-  if (!game || !myRole) {
-    console.log('❌ No game or role');
-    toast.error('Game not ready');
-    return;
-  }
-  
-  if (!game.board || !Array.isArray(game.board)) {
-    console.log('❌ Board not ready');
-    return;
-  }
-  
-  if (game.status !== 'playing') {
-    console.log('❌ Game not playing:', game.status);
-    toast('Game is not active');
-    return;
-  }
-  
-  if (game.currentTurn !== myRole) {
-    console.log('❌ Not your turn. Current:', game.currentTurn, 'Your:', myRole);
-    toast(`Not your turn! It's ${game.currentTurn}'s turn`);
-    return;
-  }
-  
-  if (game.board[index] !== null) {
-    console.log('❌ Cell already taken:', game.board[index]);
-    toast('Cell already taken');
-    return;
-  }
-
-  // Create new board
-  const newBoard = [...game.board];
-  newBoard[index] = myRole;
-  const nextTurn = myRole === 'X' ? 'O' : 'X';
-  
-  // Check for winner using the imported function
-  const { getGameResult } = await import('../utils/gameLogic');
-  const result = getGameResult(newBoard);
-  
-  console.log('Move analysis:', { index, myRole, nextTurn, result, newBoard });
-  
-  if (result) {
-    console.log('🏆 WINNER DETECTED!', result);
+  const handleMove = async (index) => {
+    console.log('🎯 handleMove called - index:', index);
+    console.log('Game state:', { status: game?.status, currentTurn: game?.currentTurn, myRole });
     
-    // If it's a win, calculate new scores
-    if (result.winner !== 'draw') {
-      const newScores = { ...scores };
-      newScores[result.winner] = (newScores[result.winner] || 0) + 1;
-      
-      // Make the move with the winner info
-      try {
-        await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
-        console.log('✅ Winning move saved!');
-      } catch (err) {
-        console.error('❌ Move failed:', err);
-        toast.error('Move failed: ' + err.message);
-      }
-    } else {
-      // It's a draw
-      const newScores = { ...scores };
-      newScores.draw = (newScores.draw || 0) + 1;
-      
-      try {
-        await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
-        console.log('✅ Draw move saved!');
-      } catch (err) {
-        console.error('❌ Move failed:', err);
-        toast.error('Move failed: ' + err.message);
-      }
-    }
-  } else {
-    // Regular move, no winner yet
-    try {
-      await makeOnlineMove(gameId, newBoard, nextTurn, null, scores);
-      console.log('✅ Regular move saved!');
-    } catch (err) {
-      console.error('❌ Move failed:', err);
-      toast.error('Move failed: ' + err.message);
-    }
-  }
-};
-
-  const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
-    if (chatInput.length > 200) {
-      toast.error('Message too long (max 200 chars)');
+    if (!game || !myRole) {
+      console.log('❌ No game or role');
+      toast.error('Game not ready');
       return;
     }
-    try {
-      await sendChatMessage(gameId, playerId, myName, chatInput.trim());
-      setChatInput('');
-    } catch (err) {
-      toast.error('Failed to send message');
+    
+    if (!game.board || !Array.isArray(game.board)) {
+      console.log('❌ Board not ready');
+      return;
+    }
+    
+    if (game.status !== 'playing') {
+      console.log('❌ Game not playing:', game.status);
+      toast('Game is not active');
+      return;
+    }
+    
+    if (game.currentTurn !== myRole) {
+      console.log('❌ Not your turn. Current:', game.currentTurn, 'Your:', myRole);
+      toast(`Not your turn! It's ${game.currentTurn}'s turn`);
+      return;
+    }
+    
+    if (game.board[index] !== null) {
+      console.log('❌ Cell already taken:', game.board[index]);
+      toast('Cell already taken');
+      return;
+    }
+
+    // Create new board
+    const newBoard = [...game.board];
+    newBoard[index] = myRole;
+    const nextTurn = myRole === 'X' ? 'O' : 'X';
+    
+    // Check for winner using the imported function
+    const { getGameResult } = await import('../utils/gameLogic');
+    const result = getGameResult(newBoard);
+    
+    console.log('Move analysis:', { index, myRole, nextTurn, result, newBoard });
+    
+    if (result) {
+      console.log('🏆 WINNER DETECTED!', result);
+      
+      // If it's a win, calculate new scores
+      if (result.winner !== 'draw') {
+        const newScores = { ...scores };
+        newScores[result.winner] = (newScores[result.winner] || 0) + 1;
+        
+        // Make the move with the winner info
+        try {
+          await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
+          console.log('✅ Winning move saved!');
+        } catch (err) {
+          console.error('❌ Move failed:', err);
+          toast.error('Move failed: ' + err.message);
+        }
+      } else {
+        // It's a draw
+        const newScores = { ...scores };
+        newScores.draw = (newScores.draw || 0) + 1;
+        
+        try {
+          await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
+          console.log('✅ Draw move saved!');
+        } catch (err) {
+          console.error('❌ Move failed:', err);
+          toast.error('Move failed: ' + err.message);
+        }
+      }
+    } else {
+      // Regular move, no winner yet
+      try {
+        await makeOnlineMove(gameId, newBoard, nextTurn, null, scores);
+        console.log('✅ Regular move saved!');
+      } catch (err) {
+        console.error('❌ Move failed:', err);
+        toast.error('Move failed: ' + err.message);
+      }
     }
   };
 
@@ -311,6 +279,13 @@ const handleMove = async (index) => {
           <span>Waiting for player to join...</span>
         </div>
         <button onClick={handleLeave} className="btn btn-ghost">Leave</button>
+        
+        {/* Floating Chat - also available while waiting */}
+        <FloatingChat 
+          gameId={gameId} 
+          playerId={playerId} 
+          playerName={myName}
+        />
       </div>
     );
   }
@@ -409,101 +384,43 @@ const handleMove = async (index) => {
         </div>
       )}
 
-      {/* Game Board and Chat Side by Side */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
-        {/* Game Board */}
-        <div style={{ flex: 2, minWidth: 280 }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10,
-            aspectRatio: '1/1', marginBottom: 20,
-          }}>
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => {
-              const cellValue = board[i];
-              return (
-                <button key={i} onClick={() => handleMove(i)}
-                  disabled={!isMyTurn || cellValue !== null || game.status !== 'playing' || gameEnded}
-                  style={{
-                    aspectRatio: '1', fontSize: 'min(8vw, 48px)', fontWeight: 'bold',
-                    background: cellValue === 'X' ? 'rgba(255,77,109,0.15)' : cellValue === 'O' ? 'rgba(77,159,255,0.15)' : 'var(--bg-elevated)',
-                    border: cellValue === 'X' ? '2px solid rgba(255,77,109,0.5)' : cellValue === 'O' ? '2px solid rgba(77,159,255,0.5)' : '2px solid var(--border)',
-                    borderRadius: 12, color: cellValue === 'X' ? '#ff4d6d' : cellValue === 'O' ? '#4d9fff' : 'transparent',
-                    cursor: (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) ? 'pointer' : 'default',
-                    transition: 'all 0.2s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) {
-                      e.currentTarget.style.transform = 'scale(1.02)';
-                      e.currentTarget.style.borderColor = myRole === 'X' ? '#ff4d6d' : '#4d9fff';
-                    }
-                  }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}>
-                  {cellValue || ''}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Chat Box */}
-        <div style={{
-          flex: 1, minWidth: 200, maxWidth: 280,
-          background: 'var(--bg-card)', borderRadius: 16,
-          border: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
-          height: 400,
-        }}>
-          <div style={{
-            padding: '10px 12px', borderBottom: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <span style={{ fontSize: 12, fontWeight: 'bold' }}>💬 CHAT</span>
-            <button onClick={() => setShowChat(!showChat)} style={{ fontSize: 12 }}>−</button>
-          </div>
-          {showChat && (
-            <>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {chatMessages.length === 0 && (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: 20 }}>
-                    No messages yet. Say something!
-                  </div>
-                )}
-                {chatMessages.map((msg) => (
-                  <div key={msg.id} style={{
-                    padding: '6px 10px', borderRadius: 10,
-                    background: msg.playerId === playerId ? 'rgba(77,255,170,0.1)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${msg.playerId === playerId ? 'rgba(77,255,170,0.3)' : 'var(--border)'}`,
-                  }}>
-                    <div style={{ fontSize: 10, color: msg.playerId === playerId ? '#4dffaa' : '#4d9fff', fontWeight: 'bold' }}>
-                      {msg.playerName}
-                    </div>
-                    <div style={{ fontSize: 12 }}>{msg.message}</div>
-                    <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                      {msg.time ? new Date(msg.time).toLocaleTimeString() : ''}
-                    </div>
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
-              <div style={{ padding: '10px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                  placeholder="Type a message..."
-                  maxLength={200}
-                  style={{
-                    flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--border)',
-                    background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12,
-                  }}
-                />
-                <button onClick={handleSendMessage} className="btn btn-primary" style={{ padding: '6px 12px', fontSize: 12 }}>
-                  Send
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+      {/* Game Board */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10,
+        aspectRatio: '1/1', marginBottom: 20,
+      }}>
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => {
+          const cellValue = board[i];
+          return (
+            <button key={i} onClick={() => handleMove(i)}
+              disabled={!isMyTurn || cellValue !== null || game.status !== 'playing' || gameEnded}
+              style={{
+                aspectRatio: '1', fontSize: 'min(8vw, 48px)', fontWeight: 'bold',
+                background: cellValue === 'X' ? 'rgba(255,77,109,0.15)' : cellValue === 'O' ? 'rgba(77,159,255,0.15)' : 'var(--bg-elevated)',
+                border: cellValue === 'X' ? '2px solid rgba(255,77,109,0.5)' : cellValue === 'O' ? '2px solid rgba(77,159,255,0.5)' : '2px solid var(--border)',
+                borderRadius: 12, color: cellValue === 'X' ? '#ff4d6d' : cellValue === 'O' ? '#4d9fff' : 'transparent',
+                cursor: (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) ? 'pointer' : 'default',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) {
+                  e.currentTarget.style.transform = 'scale(1.02)';
+                  e.currentTarget.style.borderColor = myRole === 'X' ? '#ff4d6d' : '#4d9fff';
+                }
+              }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}>
+              {cellValue || ''}
+            </button>
+          );
+        })}
       </div>
+
+      {/* Floating Chat Button */}
+      <FloatingChat 
+        gameId={gameId} 
+        playerId={playerId} 
+        playerName={myName}
+      />
     </div>
   );
 }
