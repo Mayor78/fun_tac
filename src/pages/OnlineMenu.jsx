@@ -1,32 +1,138 @@
-// OnlineMenu.jsx — Online multiplayer options
+// OnlineMenu.jsx — Online multiplayer options with Game Modes
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createGame, joinGame } from '../lib/gameService';
-import { getPlayerId, getPlayerName, setPlayerName } from '../utils/gameLogic';
+import { createGame, joinGame, GAME_MODES, GAME_CONFIG } from '../lib/game';
+import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
+
+// Game Mode Selector Component
+function GameModeSelector({ selectedMode, onSelectMode, disabled }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const modes = Object.values(GAME_MODES);
+  
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        style={{
+          width: '100%',
+          padding: '12px 16px',
+          borderRadius: 12,
+          background: `linear-gradient(135deg, ${GAME_CONFIG[selectedMode]?.color || '#4d9fff'}20, transparent)`,
+          border: `1px solid ${GAME_CONFIG[selectedMode]?.color || '#4d9fff'}`,
+          color: 'var(--text-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.5 : 1,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 24 }}>{GAME_CONFIG[selectedMode]?.icon || '🎮'}</span>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{GAME_CONFIG[selectedMode]?.name || 'Classic'}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+              {GAME_CONFIG[selectedMode]?.totalTime 
+                ? `${GAME_CONFIG[selectedMode].totalTime}s time bank` 
+                : `${GAME_CONFIG[selectedMode]?.timePerMove}s per move`}
+            </div>
+          </div>
+        </div>
+        <span>▼</span>
+      </button>
+      
+      {isOpen && !disabled && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          marginTop: 8,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          padding: 8,
+          zIndex: 100,
+        }}>
+          {modes.map(mode => (
+            <button
+              key={mode}
+              onClick={() => {
+                onSelectMode(mode);
+                setIsOpen(false);
+              }}
+              style={{
+                width: '100%',
+                padding: '12px',
+                textAlign: 'left',
+                background: selectedMode === mode ? `linear-gradient(135deg, ${GAME_CONFIG[mode].color}20, transparent)` : 'transparent',
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = `rgba(255,255,255,0.05)`}
+              onMouseLeave={e => {
+                if (selectedMode !== mode) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+            >
+              <span style={{ fontSize: 28 }}>{GAME_CONFIG[mode].icon}</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{GAME_CONFIG[mode].name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {GAME_CONFIG[mode].totalTime 
+                    ? `${GAME_CONFIG[mode].totalTime}s time bank • No time per move` 
+                    : `${GAME_CONFIG[mode].timePerMove}s per move`}
+                </div>
+                {mode === GAME_MODES.POWER_UPS && (
+                  <div style={{ fontSize: 10, color: '#bf4dff', marginTop: 2 }}>
+                    ✨ Special abilities every 3 moves!
+                  </div>
+                )}
+                {mode === GAME_MODES.SUDDEN_DEATH && (
+                  <div style={{ fontSize: 10, color: '#ff4d6d', marginTop: 2 }}>
+                    💀 No draws - continue until someone wins!
+                  </div>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OnlineMenu() {
   const navigate = useNavigate();
-  const [playerName, setName] = useState(getPlayerName() || '');
+  const { user, userName } = useAuth();
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState('');
+  const [selectedMode, setSelectedMode] = useState(GAME_MODES.CLASSIC);
 
-  const saveName = (val) => {
-    setName(val);
-    setPlayerName(val);
-  };
+  const playerName = userName || 'Player';
 
   const handleCreate = async () => {
-    if (!playerName.trim()) { 
-      toast.error('Enter your name first'); 
+    if (!playerName) { 
+      toast.error('Please login first'); 
       return; 
     }
     setLoading('create');
-    const toastId = toast.loading('Creating game room...');
+    const toastId = toast.loading(`Creating ${GAME_CONFIG[selectedMode]?.name} game room...`);
     try {
-      const gameId = await createGame(playerName.trim());
+      const gameId = await createGame(playerName, selectedMode);
       toast.success('Game created!', { id: toastId, duration: 2000 });
-      navigate(`/game/${gameId}`, { state: { role: 'X', playerName: playerName.trim() } });
+      navigate(`/game/${gameId}`, { 
+        state: { role: 'X', playerName: playerName, gameMode: selectedMode } 
+      });
     } catch (e) {
       toast.error('Failed to create game: ' + e.message, { id: toastId });
     } finally {
@@ -35,8 +141,8 @@ export default function OnlineMenu() {
   };
 
   const handleJoin = async () => {
-    if (!playerName.trim()) { 
-      toast.error('Enter your name first'); 
+    if (!playerName) { 
+      toast.error('Please login first'); 
       return; 
     }
     const code = joinCode.trim().toUpperCase();
@@ -47,9 +153,9 @@ export default function OnlineMenu() {
     setLoading('join');
     const toastId = toast.loading('Joining game...');
     try {
-      const { role } = await joinGame(code, playerName.trim());
+      const { role } = await joinGame(code, playerName);
       toast.success('Joined game!', { id: toastId, duration: 2000 });
-      navigate(`/game/${code}`, { state: { role, playerName: playerName.trim() } });
+      navigate(`/game/${code}`, { state: { role, playerName: playerName } });
     } catch (e) {
       toast.error(e.message || 'Failed to join game', { id: toastId });
     } finally {
@@ -58,97 +164,86 @@ export default function OnlineMenu() {
   };
 
   const handleSearch = () => {
-    if (!playerName.trim()) { 
-      toast.error('Enter your name first'); 
+    if (!playerName) { 
+      toast.error('Please login first'); 
       return; 
     }
-    setPlayerName(playerName.trim());
-    navigate('/matchmaking', { state: { playerName: playerName.trim() } });
+    navigate('/matchmaking', { state: { playerName: playerName } });
   };
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: 500, margin: '0 auto', padding: '24px 20px', minHeight: '100vh' }}>
+    <div className="animate-fade-in" style={{ maxWidth: 550, margin: '0 auto', padding: '24px 20px', minHeight: '100vh' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
         <button 
           onClick={() => navigate('/')} 
           className="btn btn-ghost" 
-          style={{ 
-            padding: '8px 16px',
-            borderRadius: 10,
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'translateX(-4px)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'translateX(0)'}
+          style={{ padding: '8px 16px' }}
         >
           ← Back
         </button>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Online Play</h1>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>Real-time multiplayer via Firebase</p>
+          <h1 style={{ fontSize: 24, fontWeight: 800 }}>Online Play</h1>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Real-time multiplayer with game modes</p>
         </div>
       </div>
 
-      {/* Player Name Section */}
+      {/* Player Info Section */}
       <div className="card" style={{ 
         padding: 20, 
         marginBottom: 24,
         borderRadius: 16,
-        background: 'var(--bg-elevated)',
+        background: 'linear-gradient(135deg, rgba(77, 159, 255, 0.08), rgba(255, 77, 109, 0.05))',
         border: '1px solid var(--border)',
       }}>
-        <label style={{ 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <span style={{ fontSize: 28 }}>👤</span>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              Playing as
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{playerName}</div>
+          </div>
+        </div>
+        <div style={{ 
           fontSize: 11, 
           color: 'var(--text-muted)', 
-          display: 'block', 
-          marginBottom: 8, 
-          textTransform: 'uppercase', 
-          letterSpacing: '0.08em',
-          fontWeight: 700,
+          padding: '8px 12px', 
+          background: 'var(--bg-elevated)',
+          borderRadius: 10,
+          fontFamily: 'monospace',
         }}>
-          Your Name
-        </label>
-        <input
-          className="input"
-          value={playerName}
-          onChange={e => saveName(e.target.value)}
-          placeholder="Enter your name"
-          maxLength={20}
-          style={{ fontSize: 15 }}
+          ID: {user?.uid?.substring(0, 12)}…
+        </div>
+      </div>
+
+      {/* Game Mode Selector */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-muted)' }}>
+          🎮 Select Game Mode
+        </div>
+        <GameModeSelector 
+          selectedMode={selectedMode}
+          onSelectMode={setSelectedMode}
+          disabled={!!loading}
         />
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
-          Player ID: <span style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{getPlayerId().substring(0, 12)}…</span>
-        </p>
       </div>
 
       {/* Options Grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* Create Game Card */}
-        <div 
-          className="card" 
-          style={{ 
-            padding: 24, 
-            borderRadius: 20,
-            background: 'linear-gradient(135deg, rgba(77, 255, 170, 0.05), rgba(77, 255, 170, 0.01))',
-            border: '1px solid rgba(77, 255, 170, 0.2)',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-4px)';
-            e.currentTarget.style.borderColor = 'rgba(77, 255, 170, 0.4)';
-            e.currentTarget.style.boxShadow = '0 12px 32px rgba(77, 255, 170, 0.1)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = 'rgba(77, 255, 170, 0.2)';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
+        <div className="card" style={{ 
+          padding: 24, 
+          borderRadius: 20,
+          background: `linear-gradient(135deg, ${GAME_CONFIG[selectedMode]?.color}10, transparent)`,
+          border: `1px solid ${GAME_CONFIG[selectedMode]?.color}30`,
+          transition: 'all 0.3s ease',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 800 }}>Create Game</h2>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
                 Get a shareable invite link
               </p>
             </div>
@@ -163,45 +258,31 @@ export default function OnlineMenu() {
               padding: '14px',
               fontSize: 15,
               fontWeight: 700,
-              background: loading === 'create' ? 'var(--text-muted)' : 'var(--text-primary)',
+              background: loading === 'create' ? 'var(--text-muted)' : `linear-gradient(135deg, ${GAME_CONFIG[selectedMode]?.color}, ${GAME_CONFIG[selectedMode]?.color}cc)`,
             }}
           >
             {loading === 'create' ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="animate-spin-slow" style={{ fontSize: 14 }}>⚙️</span>
+                <span className="animate-spin-slow">⚙️</span>
                 Creating...
               </span>
             ) : (
-              'Create Game →'
+              `Create ${GAME_CONFIG[selectedMode]?.name} Game →`
             )}
           </button>
         </div>
 
         {/* Join Game Card */}
-        <div 
-          className="card" 
-          style={{ 
-            padding: 24, 
-            borderRadius: 20,
-            background: 'linear-gradient(135deg, rgba(77, 159, 255, 0.05), rgba(77, 159, 255, 0.01))',
-            border: '1px solid rgba(77, 159, 255, 0.2)',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-4px)';
-            e.currentTarget.style.borderColor = 'rgba(77, 159, 255, 0.4)';
-            e.currentTarget.style.boxShadow = '0 12px 32px rgba(77, 159, 255, 0.1)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = 'rgba(77, 159, 255, 0.2)';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
+        <div className="card" style={{ 
+          padding: 24, 
+          borderRadius: 20,
+          background: 'linear-gradient(135deg, rgba(77, 159, 255, 0.05), rgba(77, 159, 255, 0.01))',
+          border: '1px solid rgba(77, 159, 255, 0.2)',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 800 }}>Join by Code</h2>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
                 Enter a game code from your friend
               </p>
             </div>
@@ -219,7 +300,7 @@ export default function OnlineMenu() {
                 fontSize: 15,
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
-                fontFamily: 'JetBrains Mono, monospace',
+                fontFamily: 'monospace',
               }}
               onKeyDown={e => e.key === 'Enter' && handleJoin()}
             />
@@ -232,42 +313,25 @@ export default function OnlineMenu() {
                 padding: '12px 24px',
                 fontSize: 14,
                 fontWeight: 700,
+                background: loading === 'join' ? 'var(--text-muted)' : 'linear-gradient(135deg, #4d9fff, #4dffaa)',
               }}
             >
-              {loading === 'join' ? (
-                <span className="animate-spin-slow" style={{ fontSize: 14 }}>⚙️</span>
-              ) : (
-                'Join →'
-              )}
+              {loading === 'join' ? <span className="animate-spin-slow">⚙️</span> : 'Join →'}
             </button>
           </div>
         </div>
 
         {/* Quick Match Card */}
-        <div 
-          className="card" 
-          style={{ 
-            padding: 24, 
-            borderRadius: 20,
-            background: 'linear-gradient(135deg, rgba(255, 77, 109, 0.05), rgba(255, 77, 109, 0.01))',
-            border: '1px solid rgba(255, 77, 109, 0.2)',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-4px)';
-            e.currentTarget.style.borderColor = 'rgba(255, 77, 109, 0.4)';
-            e.currentTarget.style.boxShadow = '0 12px 32px rgba(255, 77, 109, 0.1)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = 'rgba(255, 77, 109, 0.2)';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
+        <div className="card" style={{ 
+          padding: 24, 
+          borderRadius: 20,
+          background: 'linear-gradient(135deg, rgba(255, 77, 109, 0.05), rgba(255, 77, 109, 0.01))',
+          border: '1px solid rgba(255, 77, 109, 0.2)',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 800 }}>Quick Match</h2>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
                 Auto-match with a random online player
               </p>
             </div>
@@ -282,7 +346,7 @@ export default function OnlineMenu() {
               padding: '14px',
               fontSize: 15,
               fontWeight: 700,
-              border: '1px solid rgba(255, 77, 109, 0.3)',
+              border: '1px solid rgba(255, 77, 109, 0.4)',
               color: 'var(--accent-x)',
             }}
           >
@@ -291,28 +355,32 @@ export default function OnlineMenu() {
         </div>
       </div>
 
-      {/* How it works section */}
+      {/* How to play */}
       <div style={{ marginTop: 32, padding: 20, borderRadius: 16, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          How to Play Online
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>🎯 How to Play Online</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(77, 255, 170, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--success)' }}>1</span>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Create a game and share the code with a friend</span>
+            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(77,255,170,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#4dffaa' }}>1</span>
+            <span style={{ fontSize: 13 }}>Select a game mode and create a game</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(77, 159, 255, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--accent-o)' }}>2</span>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Or use Quick Match to find a random opponent</span>
+            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(77,159,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#4d9fff' }}>2</span>
+            <span style={{ fontSize: 13 }}>Share the game code with a friend</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(255, 204, 77, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--warning)' }}>3</span>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Wait for opponent to join and start playing!</span>
+            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(255,204,77,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#ffcc4d' }}>3</span>
+            <span style={{ fontSize: 13 }}>Or use Quick Match to find a random opponent</span>
           </div>
         </div>
       </div>
 
-     
+      {/* Status */}
+      <div style={{ marginTop: 24, padding: 12, borderRadius: 12, background: 'rgba(77,255,170,0.05)', border: '1px solid rgba(77,255,170,0.15)', textAlign: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <div className="status-dot status-dot-green" />
+          <span style={{ fontSize: 11 }}>Connected as <strong style={{ color: '#4dffaa' }}>{playerName}</strong></span>
+        </div>
+      </div>
     </div>
   );
 }

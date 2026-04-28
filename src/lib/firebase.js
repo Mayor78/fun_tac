@@ -15,30 +15,41 @@ import {
   limitToLast,
   serverTimestamp
 } from 'firebase/database';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged, 
+  updateProfile,
+  sendPasswordResetEmail
+} from 'firebase/auth';
 
-// TODO: Replace with your actual Firebase config from Firebase Console
+// Your Firebase config
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://tic-tac-70f37-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Check if Firebase is already initialized
+// Initialize Firebase only once
 let app;
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
-  console.log('✅ Firebase initialized with Realtime Database');
+  console.log('✅ Firebase initialized');
 } else {
   app = getApp();
-  console.log('✅ Using existing Firebase instance');
 }
 
 export const db = getDatabase(app);
+export const auth = getAuth(app);
 
+
+// Export all functions
 export {
   ref,
   set,
@@ -51,7 +62,13 @@ export {
   query,
   orderByChild,
   limitToLast,
-  serverTimestamp
+  serverTimestamp,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  sendPasswordResetEmail
 };
 
 export default app;

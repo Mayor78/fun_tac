@@ -1,0 +1,129 @@
+// src/lib/authService.js
+import { 
+  auth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged, 
+  updateProfile,
+  sendPasswordResetEmail,
+  db,
+  ref,
+  set,
+  get
+} from './firebase';
+
+// Save user to database helper
+async function saveUserToDatabase(user) {
+  if (!user) return;
+  
+  try {
+    const userRef = ref(db, `users/${user.uid}`);
+    const snapshot = await get(userRef);
+    
+    if (!snapshot.exists()) {
+      await set(ref(db, `users/${user.uid}`), {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        createdAt: Date.now(),
+        stats: {
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          totalGames: 0,
+          winStreak: 0,
+          bestWinStreak: 0
+        }
+      });
+      console.log('✅ User saved to database');
+    }
+  } catch (dbError) {
+    console.warn('Could not save to DB:', dbError);
+  }
+}
+
+// Register new user
+export async function registerUser(email, password, displayName) {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(userCredential.user, { displayName });
+    await saveUserToDatabase(userCredential.user);
+    return { success: true, user: userCredential.user };
+  } catch (error) {
+    console.error('Registration error:', error);
+    let errorMessage = error.message;
+    if (error.code === 'auth/email-already-in-use') {
+      errorMessage = 'Email already in use';
+    } else if (error.code === 'auth/weak-password') {
+      errorMessage = 'Password should be at least 6 characters';
+    }
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Login user
+export async function loginUser(email, password) {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return { success: true, user: userCredential.user };
+  } catch (error) {
+    console.error('Login error:', error);
+    let errorMessage = error.message;
+    if (error.code === 'auth/invalid-credential') {
+      errorMessage = 'Invalid email or password';
+    } else if (error.code === 'auth/user-not-found') {
+      errorMessage = 'No account found with this email';
+    } else if (error.code === 'auth/wrong-password') {
+      errorMessage = 'Incorrect password';
+    }
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Reset password
+export async function resetPassword(email) {
+  try {
+    await sendPasswordResetEmail(auth, email);
+    return { success: true };
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Logout
+export async function logoutUser() {
+  try {
+    await signOut(auth);
+    sessionStorage.clear();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// Get current user
+export function getCurrentUser() {
+  return auth.currentUser;
+}
+
+// Listen to auth state changes
+export function onAuthStateChange(callback) {
+  return onAuthStateChanged(auth, (user) => {
+    console.log('Auth state changed:', user?.email || 'No user');
+    callback(user);
+  });
+}
+
+// Get player stats
+export async function getPlayerStats(userId) {
+  try {
+    const userRef = ref(db, `users/${userId}`);
+    const snapshot = await get(userRef);
+    return snapshot.exists() ? snapshot.val() : null;
+  } catch (error) {
+    console.error('Error getting player stats:', error);
+    return null;
+  }
+}
