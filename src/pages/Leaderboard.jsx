@@ -11,7 +11,7 @@ export default function Leaderboard() {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [myStats, setMyStats] = useState(null);
-  const [filter, setFilter] = useState('wins');
+  const [filter, setFilter] = useState('elo');
   const [isMobile, setIsMobile] = useState(false);
 
   // Check if mobile for responsive design
@@ -77,7 +77,9 @@ export default function Leaderboard() {
 
   const getSortedPlayers = () => {
     const sorted = [...players];
-    if (filter === 'wins') {
+    if (filter === 'elo') {
+      sorted.sort((a, b) => (b.elo || 1200) - (a.elo || 1200));
+    } else if (filter === 'wins') {
       sorted.sort((a, b) => b.wins - a.wins);
     } else if (filter === 'winRate') {
       sorted.sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
@@ -203,9 +205,17 @@ export default function Leaderboard() {
                     <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--success)' }}>{myStats.winRate || 0}%</div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Win Rate</div>
                   </div>
-                  <div style={{ textAlign: 'center' }}>
+                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: '#ffcc4d' }}>🔥{myStats.bestWinStreak || 0}</div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Best Streak</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: '#4dffaa' }}>⚡{myStats.elo || 1200}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>ELO Rating</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: '#ffcc4d' }}>🪙{myStats.coins || 0}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Coins</div>
                   </div>
                 </>
               )}
@@ -320,12 +330,28 @@ export default function Leaderboard() {
         justifyContent: isMobile ? 'center' : 'flex-start',
       }}>
         <button
+          onClick={() => setFilter('elo')}
+          style={{
+            padding: isMobile ? '6px 14px' : '8px 20px',
+            borderRadius: 30,
+            background: filter === 'elo' ? 'var(--accent-x)' : 'var(--bg-elevated)',
+            border: `1px solid ${filter === 'elo' ? 'var(--accent-x)' : 'var(--border)'}`,
+            color: filter === 'elo' ? 'white' : 'var(--text-secondary)',
+            fontWeight: 600,
+            fontSize: isMobile ? 11 : 13,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          ⚡ Ranked (ELO)
+        </button>
+        <button
           onClick={() => setFilter('wins')}
           style={{
             padding: isMobile ? '6px 14px' : '8px 20px',
             borderRadius: 30,
-            background: filter === 'wins' ? 'var(--accent-x)' : 'var(--bg-elevated)',
-            border: `1px solid ${filter === 'wins' ? 'var(--accent-x)' : 'var(--border)'}`,
+            background: filter === 'wins' ? 'var(--accent-o)' : 'var(--bg-elevated)',
+            border: `1px solid ${filter === 'wins' ? 'var(--accent-o)' : 'var(--border)'}`,
             color: filter === 'wins' ? 'white' : 'var(--text-secondary)',
             fontWeight: 600,
             fontSize: isMobile ? 11 : 13,
@@ -441,6 +467,7 @@ export default function Leaderboard() {
                   <th style={{ padding: '16px 12px', textAlign: 'center', width: 80 }}>📉 Losses</th>
                   <th style={{ padding: '16px 12px', textAlign: 'center', width: 80 }}>🤝 Draws</th>
                   <th style={{ padding: '16px 12px', textAlign: 'center', width: 100 }}>📊 Win Rate</th>
+                  <th style={{ padding: '16px 12px', textAlign: 'center', width: 100 }}>⚡ ELO</th>
                   <th style={{ padding: '16px 12px', textAlign: 'center', width: 100 }}>🎮 Games</th>
                   <th style={{ padding: '16px 12px', textAlign: 'center', width: 100 }}>🔥 Streak</th>
                 </tr>
@@ -490,6 +517,9 @@ export default function Leaderboard() {
                       </td>
                       <td style={{ padding: '16px 12px', textAlign: 'center', fontWeight: 700, color: '#4dffaa' }}>
                         {winRate}%
+                      </td>
+                      <td style={{ padding: '16px 12px', textAlign: 'center', fontWeight: 800, color: '#4dffaa' }}>
+                        {player.elo || 1200}
                       </td>
                       <td style={{ padding: '16px 12px', textAlign: 'center', color: '#4d9fff' }}>
                         {player.totalGames || 0}

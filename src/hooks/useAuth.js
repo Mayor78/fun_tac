@@ -24,7 +24,7 @@ export function useAuth() {
       if (authUser) {
         // Load user stats when logged in
         const stats = await getPlayerStats(authUser.uid);
-        setUserStats(stats?.stats || null);
+        setUserStats(stats || null);
       } else {
         setUserStats(null);
       }

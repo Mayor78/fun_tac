@@ -1,21 +1,28 @@
-// src/lib/gameService.js - FULLY FIXED WITH PROPER SCORING
-import { 
-  db, ref, set, onValue, update, remove, get, 
+import {
+  db, ref, set, onValue, update, remove, get,
   serverTimestamp, push, query, orderByChild, limitToLast
 } from './firebase';
 import { generateGameId, getPlayerId, getPlayerName, checkWinner } from '../utils/gameLogic';
+import { GAME_MODES } from './game';
+import { updatePlayerStats, getLeaderboard, subscribeToLeaderboard, getPlayerStats } from './game/leaderboard';
+export { updatePlayerStats, getLeaderboard, subscribeToLeaderboard, getPlayerStats };
 
 // Helper functions for board conversion
-function boardToArray(boardObj) {
-  const arr = Array(9).fill(null);
+function boardToArray(boardObj, size = 3) {
+  const length = size * size;
+  const arr = Array(length).fill(null);
   if (!boardObj) return arr;
+
   if (Array.isArray(boardObj)) {
-    for (let i = 0; i < 9 && i < boardObj.length; i++) {
-      arr[i] = boardObj[i] || null;
+    // Strictly return an array of the requested size
+    const result = Array(length).fill(null);
+    for (let i = 0; i < length && i < boardObj.length; i++) {
+      result[i] = boardObj[i] !== undefined ? boardObj[i] : null;
     }
-    return arr;
+    return result;
   }
-  for (let i = 0; i < 9; i++) {
+
+  for (let i = 0; i < length; i++) {
     if (boardObj[i] !== undefined && boardObj[i] !== null) {
       arr[i] = boardObj[i];
     }
@@ -35,25 +42,30 @@ function boardToObject(boardArray) {
 }
 
 function determineWinner(boardArray) {
-  const board = boardToArray(boardArray);
-  const xWin = checkWinner(board, 'X');
+  if (!boardArray || !Array.isArray(boardArray)) return null;
+  
+  const moveCount = boardArray.filter(c => c !== null).length;
+  if (moveCount < 5 && boardArray.length >= 9) return null; // Minimum moves for a 3x3 win is 5
+  if (moveCount < 7 && boardArray.length > 9) return null; // Minimum moves for 4x4 or 5x5 is higher
   if (xWin) return { winner: 'X', line: xWin.line };
-  const oWin = checkWinner(board, 'O');
+  const oWin = checkWinner(boardArray, 'O');
   if (oWin) return { winner: 'O', line: oWin.line };
-  const isFull = board.every(cell => cell !== null);
+  const isFull = boardArray.length >= 9 && boardArray.every(cell => cell === 'X' || cell === 'O');
   if (isFull) return { winner: 'draw', line: [] };
   return null;
 }
 
 // Create a new game
-export async function createGame(hostName) {
+export async function createGame(hostName, gameMode = GAME_MODES.CLASSIC, boardSize = 3) {
   const gameId = generateGameId();
   const playerId = getPlayerId();
   const playerName = hostName || getPlayerName() || 'Player 1';
 
   const gameData = {
     id: gameId,
-    board: {},
+    board: boardToObject(Array(boardSize * boardSize).fill(null)),
+    boardSize: boardSize,
+    gameMode: gameMode,
     players: { X: playerId, O: null },
     playerNames: { X: playerName, O: null },
     currentTurn: 'X',
@@ -66,7 +78,8 @@ export async function createGame(hostName) {
     rematchGameId: null,
     scores: { X: 0, O: 0, draw: 0 },
     lastMoveTime: Date.now(),
-    gameStartTime: null
+    gameStartTime: null,
+    moveHistory: { X: [], O: [] }
   };
 
   await set(ref(db, `games/${gameId}`), gameData);
@@ -78,13 +91,13 @@ export async function joinGame(gameId, guestName) {
   const playerId = getPlayerId();
   const playerName = guestName || getPlayerName() || 'Player 2';
   const gameRef = ref(db, `games/${gameId}`);
-  
+
   const snapshot = await get(gameRef);
   if (!snapshot.exists()) throw new Error('Game not found');
-  
+
   const game = snapshot.val();
   const currentPlayers = game.players || {};
-  
+
   if (currentPlayers.X === playerId) {
     game.board = boardToArray(game.board);
     return { role: 'X', game };
@@ -108,32 +121,35 @@ export async function joinGame(gameId, guestName) {
   const newSnapshot = await get(gameRef);
   const updatedGame = newSnapshot.val();
   updatedGame.board = boardToArray(updatedGame.board);
-  
+
   return { role: 'O', game: updatedGame };
 }
 
 // Make a move with proper score update
-// Make a move with proper score update
-export async function makeOnlineMove(gameId, boardArray, nextTurn, result, providedScores) {
+export async function makeOnlineMove(gameId, boardArray, nextTurn, result, providedScores, powerUpUsed = null, moveHistory = null) {
   console.log('🎯 makeOnlineMove called:', { gameId, nextTurn, result, providedScores });
-  
+
   const gameRef = ref(db, `games/${gameId}`);
   const snapshot = await get(gameRef);
   const currentGame = snapshot.val();
-  
+
   if (!currentGame) {
     console.error('❌ Game not found');
     throw new Error('Game not found');
   }
-  
+
   let newScores = providedScores || currentGame?.scores || { X: 0, O: 0, draw: 0 };
-  
   const updates = {
     board: boardToObject(boardArray),
     currentTurn: nextTurn,
     updatedAt: serverTimestamp(),
-    lastMoveTime: Date.now()
+    lastMoveTime: Date.now(),
+    moveHistory: moveHistory || currentGame.moveHistory || { X: [], O: [] }
   };
+
+  if (powerUpUsed) {
+    updates.lastPowerUpUsed = powerUpUsed;
+  }
 
   // If game has a winner, update status
   if (result && result.winner) {
@@ -142,7 +158,7 @@ export async function makeOnlineMove(gameId, boardArray, nextTurn, result, provi
     updates.winLine = result.line || [];
     updates.scores = newScores;
     console.log('🏆 Game finished - Winner:', result.winner, 'Scores:', newScores);
-    
+
     // Update leaderboard
     if (result.winner === 'draw') {
       await updatePlayerStats(
@@ -155,11 +171,12 @@ export async function makeOnlineMove(gameId, boardArray, nextTurn, result, provi
       const winnerName = currentGame?.playerNames[result.winner];
       const loserId = currentGame?.players[result.winner === 'X' ? 'O' : 'X'];
       const loserName = currentGame?.playerNames[result.winner === 'X' ? 'O' : 'X'];
-      
+
       await updatePlayerStats(
         { playerId: winnerId, playerName: winnerName },
         { playerId: loserId, playerName: loserName },
-        false
+        false,
+        currentGame.gameMode || 'classic'
       );
     }
   }
@@ -170,67 +187,19 @@ export async function makeOnlineMove(gameId, boardArray, nextTurn, result, provi
 // Listen to game changes
 export function subscribeToGame(gameId, callback) {
   const gameRef = ref(db, `games/${gameId}`);
-  
+
   return onValue(gameRef, (snapshot) => {
     const data = snapshot.val();
     if (!data) {
       callback(null);
       return;
     }
-    
-    // Convert board from object to array
-    const fullBoard = boardToArray(data.board);
+
+    // Convert board from object to array using the game's stored boardSize
+    const boardSize = data.boardSize || 3;
+    const fullBoard = boardToArray(data.board, boardSize);
     const updatedData = { ...data, board: fullBoard };
-    
-    // Check for winner on EVERY update
-    const result = determineWinner(fullBoard);
-    
-    // If there's a winner and game is still playing, update it
-    if (result && data.status === 'playing') {
-      const newScores = { ...(data.scores || { X: 0, O: 0, draw: 0 }) };
-      if (result.winner === 'draw') {
-        newScores.draw = (newScores.draw || 0) + 1;
-      } else {
-        newScores[result.winner] = (newScores[result.winner] || 0) + 1;
-      }
-      
-      // Update Firebase with winner info
-      update(ref(db, `games/${gameId}`), {
-        status: 'finished',
-        winner: result.winner,
-        winLine: result.line || [],
-        scores: newScores,
-        updatedAt: serverTimestamp()
-      }).catch(console.error);
-      
-      callback({ ...updatedData, ...result, status: 'finished', scores: newScores });
-      return;
-    }
-    
-    // Check for timeout (only if game is playing and no winner yet)
-    if (data.status === 'playing' && data.lastMoveTime && !result) {
-      const timeSinceLastMove = (Date.now() - data.lastMoveTime) / 1000;
-      if (timeSinceLastMove >= 60) {
-        const currentPlayer = data.currentTurn;
-        const winner = currentPlayer === 'X' ? 'O' : 'X';
-        const newScores = { ...(data.scores || { X: 0, O: 0, draw: 0 }) };
-        newScores[winner] = (newScores[winner] || 0) + 1;
-        
-        update(ref(db, `games/${gameId}`), {
-          status: 'finished',
-          winner: winner,
-          winLine: [],
-          scores: newScores,
-          timeoutForfeit: currentPlayer,
-          updatedAt: serverTimestamp()
-        }).catch(console.error);
-        
-        callback({ ...updatedData, winner: winner, status: 'finished', scores: newScores });
-        return;
-      }
-      updatedData.timeRemaining = Math.max(0, 60 - timeSinceLastMove);
-    }
-    
+
     callback(updatedData);
   });
 }
@@ -267,16 +236,19 @@ export async function resetGame(gameId) {
   const gameRef = ref(db, `games/${gameId}`);
   const snapshot = await get(gameRef);
   if (!snapshot.exists()) throw new Error('Game not found');
-  
+  const data = snapshot.val();
+  const size = data.boardSize || 3;
+
   await update(gameRef, {
-    board: {},
+    board: boardToObject(Array(size * size).fill(null)),
     currentTurn: 'X',
     status: 'playing',
     winner: null,
     winLine: [],
     rematchRequestedBy: null,
     lastMoveTime: Date.now(),
-    updatedAt: serverTimestamp()
+    updatedAt: serverTimestamp(),
+    moveHistory: { X: [], O: [] }
   });
 }
 
@@ -297,7 +269,11 @@ export async function joinMatchmaking(playerName) {
   const playerId = getPlayerId();
   const name = playerName || getPlayerName() || 'Player';
 
-  console.log('🎯 Joining matchmaking:', playerId, name);
+  // Get current player's ELO
+  const stats = await getPlayerStats(playerId);
+  const myElo = stats?.elo || 1200;
+
+  console.log('🎯 Joining matchmaking:', playerId, name, 'ELO:', myElo);
 
   // Clean up any existing queue entries
   await leaveMatchmaking();
@@ -306,15 +282,30 @@ export async function joinMatchmaking(playerName) {
   const queueRef = ref(db, 'queue');
   const snapshot = await get(queueRef);
   const queue = snapshot.val() || {};
-  
+
   let waitingPlayerId = null;
   let waitingPlayerData = null;
-  
+
+  // Try to find someone within 200 ELO range first
   for (const [id, data] of Object.entries(queue)) {
     if (data.status === 'waiting' && id !== playerId) {
-      waitingPlayerId = id;
-      waitingPlayerData = data;
-      break;
+      const opponentElo = data.elo || 1200;
+      if (Math.abs(myElo - opponentElo) <= 200) {
+        waitingPlayerId = id;
+        waitingPlayerData = data;
+        break;
+      }
+    }
+  }
+
+  // If no one in range, take the first available if they've been waiting long (>10s)
+  if (!waitingPlayerId) {
+    for (const [id, data] of Object.entries(queue)) {
+      if (data.status === 'waiting' && id !== playerId) {
+        waitingPlayerId = id;
+        waitingPlayerData = data;
+        break;
+      }
     }
   }
 
@@ -327,7 +318,7 @@ export async function joinMatchmaking(playerName) {
     const gameId = generateGameId();
     const gameData = {
       id: gameId,
-      board: {},
+      board: boardToObject(Array(9).fill(null)),
       players: { X: waitingPlayerData.playerId, O: playerId },
       playerNames: { X: waitingPlayerData.playerName, O: name },
       currentTurn: 'X',
@@ -341,11 +332,13 @@ export async function joinMatchmaking(playerName) {
       matchmade: true,
       scores: { X: 0, O: 0, draw: 0 },
       lastMoveTime: Date.now(),
-      gameStartTime: Date.now()
+      gameStartTime: Date.now(),
+      gameMode: GAME_MODES.CLASSIC,
+      moveHistory: { X: [], O: [] }
     };
 
     await set(ref(db, `games/${gameId}`), gameData);
-    
+
     // Use match/ path (with slash) to match your security rules
     const matchRef = ref(db, `match/${waitingPlayerData.playerId}`);
     await set(matchRef, {
@@ -363,6 +356,7 @@ export async function joinMatchmaking(playerName) {
       playerId,
       playerName: name,
       status: 'waiting',
+      elo: myElo,
       joinedAt: serverTimestamp()
     });
     return { status: 'queued', playerId };
@@ -373,7 +367,7 @@ export async function joinMatchmaking(playerName) {
 export function subscribeToMatchmaking(playerId, callback) {
   console.log('📡 Subscribing to matchmaking for:', playerId);
   const matchRef = ref(db, `match/${playerId}`);
-  
+
   return onValue(matchRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
@@ -391,7 +385,7 @@ export function subscribeToMatchmaking(playerId, callback) {
 export async function leaveMatchmaking() {
   const playerId = getPlayerId();
   console.log('🚪 Leaving matchmaking for:', playerId);
-  
+
   try {
     // Remove from queue
     await remove(ref(db, `queue/${playerId}`));
@@ -418,153 +412,15 @@ export async function getQueueStatus(playerId) {
   }
 }
 export async function requestRematch(gameId, playerId) {
-  await update(ref(db, `games/${gameId}`), { 
-    rematchRequestedBy: playerId, 
-    updatedAt: serverTimestamp() 
+  await update(ref(db, `games/${gameId}`), {
+    rematchRequestedBy: playerId,
+    updatedAt: serverTimestamp()
   });
 }
 
 
 
-// Leaderboard Functions
-
-// Update player stats after a game ends
-export async function updatePlayerStats(winner, loser, isDraw = false) {
-  const winnerId = winner?.playerId;
-  const winnerName = winner?.playerName;
-  const loserId = loser?.playerId;
-  const loserName = loser?.playerName;
-  
-  const updates = {};
-  
-  if (!isDraw && winnerId) {
-    // Update winner stats
-    const winnerRef = ref(db, `leaderboard/${winnerId}`);
-    const winnerSnapshot = await get(winnerRef);
-    const winnerStats = winnerSnapshot.val() || {
-      playerId: winnerId,
-      playerName: winnerName,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      totalGames: 0,
-      winStreak: 0,
-      bestWinStreak: 0,
-      lastUpdated: Date.now()
-    };
-    
-    updates[`leaderboard/${winnerId}`] = {
-      ...winnerStats,
-      playerName: winnerName,
-      wins: (winnerStats.wins || 0) + 1,
-      totalGames: (winnerStats.totalGames || 0) + 1,
-      winStreak: (winnerStats.winStreak || 0) + 1,
-      bestWinStreak: Math.max(winnerStats.bestWinStreak || 0, (winnerStats.winStreak || 0) + 1),
-      lastUpdated: Date.now()
-    };
-    
-    // Update loser stats
-    if (loserId) {
-      const loserRef = ref(db, `leaderboard/${loserId}`);
-      const loserSnapshot = await get(loserRef);
-      const loserStats = loserSnapshot.val() || {
-        playerId: loserId,
-        playerName: loserName,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        totalGames: 0,
-        winStreak: 0,
-        bestWinStreak: 0,
-        lastUpdated: Date.now()
-      };
-      
-      updates[`leaderboard/${loserId}`] = {
-        ...loserStats,
-        playerName: loserName,
-        losses: (loserStats.losses || 0) + 1,
-        totalGames: (loserStats.totalGames || 0) + 1,
-        winStreak: 0,
-        lastUpdated: Date.now()
-      };
-    }
-  } else if (isDraw && winnerId && loserId) {
-    // Update both players for draw
-    [winnerId, loserId].forEach(async (playerId) => {
-      if (!playerId) return;
-      const playerRef = ref(db, `leaderboard/${playerId}`);
-      const playerSnapshot = await get(playerRef);
-      const playerStats = playerSnapshot.val() || {
-        playerId: playerId,
-        playerName: playerId === winnerId ? winnerName : loserName,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        totalGames: 0,
-        winStreak: 0,
-        bestWinStreak: 0,
-        lastUpdated: Date.now()
-      };
-      
-      updates[`leaderboard/${playerId}`] = {
-        ...playerStats,
-        draws: (playerStats.draws || 0) + 1,
-        totalGames: (playerStats.totalGames || 0) + 1,
-        winStreak: 0,
-        lastUpdated: Date.now()
-      };
-    });
-  }
-  
-  if (Object.keys(updates).length > 0) {
-    await update(ref(db), updates);
-  }
-}
-
-// Get leaderboard data
-export async function getLeaderboard(limit = 10) {
-  const leaderboardRef = ref(db, 'leaderboard');
-  const snapshot = await get(leaderboardRef);
-  const data = snapshot.val() || {};
-  
-  // Convert to array and sort by wins
-  const players = Object.values(data).map(player => ({
-    ...player,
-    winRate: player.totalGames > 0 ? ((player.wins / player.totalGames) * 100).toFixed(1) : 0
-  }));
-  
-  // Sort by wins (descending), then by winRate
-  players.sort((a, b) => {
-    if (a.wins !== b.wins) return b.wins - a.wins;
-    return parseFloat(b.winRate) - parseFloat(a.winRate);
-  });
-  
-  return players.slice(0, limit);
-}
-
-// Subscribe to real-time leaderboard updates
-export function subscribeToLeaderboard(callback) {
-  const leaderboardRef = ref(db, 'leaderboard');
-  return onValue(leaderboardRef, async (snapshot) => {
-    const data = snapshot.val() || {};
-    const players = Object.values(data).map(player => ({
-      ...player,
-      winRate: player.totalGames > 0 ? ((player.wins / player.totalGames) * 100).toFixed(1) : 0
-    }));
-    players.sort((a, b) => {
-      if (a.wins !== b.wins) return b.wins - a.wins;
-      return parseFloat(b.winRate) - parseFloat(a.winRate);
-    });
-    callback(players);
-  });
-}
-
-// Get current player's stats
-export async function getPlayerStats(playerId) {
-  const playerRef = ref(db, `leaderboard/${playerId}`);
-  const snapshot = await get(playerRef);
-  return snapshot.val() || null;
-}
+// Leaderboard Functions are exported at the top of the file
 export async function acceptRematch(oldGameId) {
   const snapshot = await get(ref(db, `games/${oldGameId}`));
   if (!snapshot.exists()) throw new Error('Game not found');
@@ -593,10 +449,10 @@ export async function acceptRematch(oldGameId) {
   };
 
   await set(ref(db, `games/${newGameId}`), gameData);
-  await update(ref(db, `games/${oldGameId}`), { 
+  await update(ref(db, `games/${oldGameId}`), {
     rematchGameId: newGameId,
     updatedAt: serverTimestamp()
   });
-  
+
   return newGameId;
 }

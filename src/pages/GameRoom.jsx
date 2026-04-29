@@ -1,12 +1,18 @@
-// src/pages/GameRoom.jsx - COMPLETE WITH FLOATING CHAT
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  subscribeToGame, joinGame, makeOnlineMove, resetGame, leaveGame
-} from '../lib/gameService';
 import { getPlayerId, getPlayerName } from '../utils/gameLogic';
+import { useGameRoom } from '../hooks/useGameRoom';
+import { GAME_CONFIG, GAME_MODES } from '../lib/game';
 import FloatingChat from '../components/FloatingChat';
+import ResultModal from '../components/ResultModal';
+import PowerUpModal from '../components/PowerUpModal';
+import TurnIndicator from '../components/TurnIndicator';
+import EmojiReactions from '../components/EmojiReactions';
+import Shop from '../components/Shop';
 import toast from 'react-hot-toast';
+import GameBoard from '../components/GameBoard';
+import soundService from '../lib/soundService';
+import themeService from '../lib/themeService';
 
 export default function GameRoom() {
   const { gameId } = useParams();
@@ -14,198 +20,64 @@ export default function GameRoom() {
   const location = useLocation();
   const playerId = getPlayerId();
   
-  const [game, setGame] = useState(null);
   const [myRole, setMyRole] = useState(location.state?.role || null);
   const [myName] = useState(location.state?.playerName || getPlayerName() || 'Player');
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState(null);
-  const [scores, setScores] = useState({ X: 0, O: 0, draw: 0 });
-  const [resetting, setResetting] = useState(false);
-  const [showResultModal, setShowResultModal] = useState(false);
-  const [resultMessage, setResultMessage] = useState({ title: '', message: '', emoji: '', color: '' });
-  const [timeRemaining, setTimeRemaining] = useState(60);
-  const [gameEnded, setGameEnded] = useState(false);
-  const timerInterval = useRef(null);
+  const [showShop, setShowShop] = useState(false);
+  
+  const {
+    game,
+    scores,
+    error,
+    resetting,
+    showResultModal,
+    resultMessage,
+    gameEnded,
+    gameMode,
+    timeRemaining,
+    timeBank,
+    showPowerUpModal,
+    currentPowerUp,
+    isMyTurn,
+    board,
+    moveHistory,
+    handleMove,
+    handlePlayAgain,
+    handleLeave,
+    handlePowerUpUse,
+    handlePurchase,
+    closePowerUpModal
+  } = useGameRoom(gameId, myRole, setMyRole, myName);
 
-  // Timer effect
+  const prevBoardRef = useRef(board);
+
+  // Play sounds when board changes (opponent moved)
   useEffect(() => {
-    if (timerInterval.current) clearInterval(timerInterval.current);
-    
-    if (game?.status === 'playing' && game.currentTurn === myRole && !gameEnded) {
-      setTimeRemaining(60);
-      timerInterval.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(timerInterval.current);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (JSON.stringify(board) !== JSON.stringify(prevBoardRef.current)) {
+      soundService.move();
+      prevBoardRef.current = board;
+    }
+  }, [board]);
+
+  // Play win/lose/draw sounds when result modal appears
+  useEffect(() => {
+    if (!showResultModal || !resultMessage) return;
+    if (resultMessage.title?.includes('Won') && resultMessage.title?.includes('You')) {
+      soundService.win();
+    } else if (resultMessage.title?.includes('Draw')) {
+      soundService.draw();
     } else {
-      setTimeRemaining(60);
+      soundService.lose();
     }
-    
-    return () => {
-      if (timerInterval.current) clearInterval(timerInterval.current);
-    };
-  }, [game?.status, game?.currentTurn, myRole, gameEnded]);
+  }, [showResultModal]);
 
-  // Join game if needed
+  // Countdown sounds for timer
   useEffect(() => {
-    if (!myRole && !error && gameId) {
-      joinGame(gameId, myName)
-        .then(({ role }) => setMyRole(role))
-        .catch(e => setError(e.message));
-    }
-  }, [gameId, myRole, myName, error]);
-
-  // Subscribe to game - REAL TIME UPDATES
-  useEffect(() => {
-    if (!gameId) return;
-    
-    const unsubscribe = subscribeToGame(gameId, (data) => {
-      if (data) {
-        console.log('Game update received:', data.status, data.currentTurn);
-        
-        if (data.scores) setScores(data.scores);
-        
-        // Check if game just finished
-        if (data.status === 'finished' && game?.status !== 'finished' && !gameEnded) {
-          setGameEnded(true);
-          
-          if (data.winner === 'draw') {
-            setResultMessage({
-              title: "It's a Draw!",
-              message: "Well played! Both players gave it their best.",
-              emoji: "🤝",
-              color: "var(--warning)"
-            });
-            setShowResultModal(true);
-          } else if (data.winner === myRole) {
-            setResultMessage({
-              title: "You Won! 🎉",
-              message: data.timeoutForfeit === myRole ? "Opponent ran out of time!" : "Great game!",
-              emoji: "🏆",
-              color: "var(--success)"
-            });
-            setShowResultModal(true);
-          } else if (data.winner) {
-            setResultMessage({
-              title: `${data.winner} Wins!`,
-              message: data.timeoutForfeit ? `${data.playerNames?.[data.timeoutForfeit]} ran out of time!` : "Better luck next time!",
-              emoji: data.winner === 'X' ? "❌" : "⭕",
-              color: data.winner === 'X' ? "var(--accent-x)" : "var(--accent-o)"
-            });
-            setShowResultModal(true);
-          }
-        }
-        
-        // Check if opponent abandoned the game
-        if (data.status === 'abandoned' && game?.status !== 'abandoned') {
-          toast.error('Opponent left the game!', { duration: 5000 });
-          setError('Opponent left the game');
-        }
-        
-        // Reset game ended flag when game becomes playing again
-        if (data.status === 'playing' && game?.status === 'finished') {
-          setGameEnded(false);
-          setShowResultModal(false);
-        }
-        
-        setGame(data);
-      } else {
-        setError('Game not found');
-      }
-    });
-    
-    return () => unsubscribe();
-  }, [gameId, myRole, game?.status, gameEnded]);
-
-  const handleMove = async (index) => {
-    console.log('🎯 handleMove called - index:', index);
-    console.log('Game state:', { status: game?.status, currentTurn: game?.currentTurn, myRole });
-    
-    if (!game || !myRole) {
-      console.log('❌ No game or role');
-      toast.error('Game not ready');
-      return;
-    }
-    
-    if (!game.board || !Array.isArray(game.board)) {
-      console.log('❌ Board not ready');
-      return;
-    }
-    
-    if (game.status !== 'playing') {
-      console.log('❌ Game not playing:', game.status);
-      toast('Game is not active');
-      return;
-    }
-    
-    if (game.currentTurn !== myRole) {
-      console.log('❌ Not your turn. Current:', game.currentTurn, 'Your:', myRole);
-      toast(`Not your turn! It's ${game.currentTurn}'s turn`);
-      return;
-    }
-    
-    if (game.board[index] !== null) {
-      console.log('❌ Cell already taken:', game.board[index]);
-      toast('Cell already taken');
-      return;
-    }
-
-    // Create new board
-    const newBoard = [...game.board];
-    newBoard[index] = myRole;
-    const nextTurn = myRole === 'X' ? 'O' : 'X';
-    
-    // Check for winner using the imported function
-    const { getGameResult } = await import('../utils/gameLogic');
-    const result = getGameResult(newBoard);
-    
-    console.log('Move analysis:', { index, myRole, nextTurn, result, newBoard });
-    
-    if (result) {
-      console.log('🏆 WINNER DETECTED!', result);
-      
-      // If it's a win, calculate new scores
-      if (result.winner !== 'draw') {
-        const newScores = { ...scores };
-        newScores[result.winner] = (newScores[result.winner] || 0) + 1;
-        
-        // Make the move with the winner info
-        try {
-          await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
-          console.log('✅ Winning move saved!');
-        } catch (err) {
-          console.error('❌ Move failed:', err);
-          toast.error('Move failed: ' + err.message);
-        }
-      } else {
-        // It's a draw
-        const newScores = { ...scores };
-        newScores.draw = (newScores.draw || 0) + 1;
-        
-        try {
-          await makeOnlineMove(gameId, newBoard, nextTurn, result, newScores);
-          console.log('✅ Draw move saved!');
-        } catch (err) {
-          console.error('❌ Move failed:', err);
-          toast.error('Move failed: ' + err.message);
-        }
-      }
-    } else {
-      // Regular move, no winner yet
-      try {
-        await makeOnlineMove(gameId, newBoard, nextTurn, null, scores);
-        console.log('✅ Regular move saved!');
-      } catch (err) {
-        console.error('❌ Move failed:', err);
-        toast.error('Move failed: ' + err.message);
-      }
-    }
-  };
+    if (!timeRemaining) return;
+    const t = Math.ceil(timeRemaining);
+    if (t <= 5 && t > 0 && isMyTurn) soundService.urgentCountdown();
+    else if (t <= 10 && t > 0 && isMyTurn) soundService.countdown();
+  }, [Math.ceil(timeRemaining || 0)]);
 
   const handleCopyLink = () => {
     const url = `${window.location.origin}/game/${gameId}`;
@@ -213,32 +85,6 @@ export default function GameRoom() {
     setCopied(true);
     toast.success('Link copied!');
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handlePlayAgain = async () => {
-    if (resetting) return;
-    setResetting(true);
-    setShowResultModal(false);
-    setGameEnded(false);
-    toast.loading('Starting new round...', { id: 'reset' });
-    try {
-      await resetGame(gameId);
-      toast.success('New round! Keep playing!', { id: 'reset', duration: 2000 });
-    } catch (err) {
-      toast.error('Failed to reset game', { id: 'reset' });
-    } finally {
-      setResetting(false);
-    }
-  };
-
-  const handleLeave = async () => {
-    try {
-      await leaveGame(gameId, playerId);
-      toast('You left the game', { icon: '👋' });
-    } catch (err) {
-      console.error('Error leaving game:', err);
-    }
-    navigate('/online');
   };
 
   if (error) {
@@ -254,7 +100,7 @@ export default function GameRoom() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 16 }}>⚙️</div>
+          <div className="animate-spin-slow" style={{ fontSize: 40, marginBottom: 16 }}>⚙️</div>
           <p>Loading game...</p>
         </div>
       </div>
@@ -279,85 +125,93 @@ export default function GameRoom() {
           <span>Waiting for player to join...</span>
         </div>
         <button onClick={handleLeave} className="btn btn-ghost">Leave</button>
-        
-        {/* Floating Chat - also available while waiting */}
-        <FloatingChat 
-          gameId={gameId} 
-          playerId={playerId} 
-          playerName={myName}
-        />
+        <FloatingChat gameId={gameId} playerId={playerId} playerName={myName} />
       </div>
     );
   }
 
-  // Active game
-  const isMyTurn = myRole === game.currentTurn && game.status === 'playing' && !gameEnded;
-  const board = game.board && Array.isArray(game.board) && game.board.length === 9 ? game.board : Array(9).fill(null);
+  const modeConfig = GAME_CONFIG[gameMode];
+  const isSuddenDeath = gameMode === GAME_MODES.SUDDEN_DEATH;
+
+  // Figure out which cells are 'about to vanish' (oldest piece per player)
+  const vanishingCells = new Set();
+  if (isSuddenDeath && moveHistory) {
+    if (moveHistory.X?.length >= 3) vanishingCells.add(moveHistory.X[0]);
+    if (moveHistory.O?.length >= 3) vanishingCells.add(moveHistory.O[0]);
+  }
 
   return (
     <div style={{ maxWidth: 550, margin: '0 auto', padding: 20 }}>
-      {/* Result Modal Popup */}
-      {showResultModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.9)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 1000, animation: 'fadeIn 0.3s ease',
+      {/* Game Mode Badge */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <span style={{
+          display: 'inline-block',
+          padding: '4px 12px',
+          borderRadius: 20,
+          background: `${modeConfig?.color}20`,
+          border: `1px solid ${modeConfig?.color}`,
+          fontSize: 11,
+          fontWeight: 700,
         }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: 28, padding: '32px 40px', textAlign: 'center',
-            border: `2px solid ${resultMessage.color}`,
-            boxShadow: `0 0 60px ${resultMessage.color}40`,
-            animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
-            maxWidth: '90%', width: 380,
-          }}>
-            <div style={{ fontSize: 72, marginBottom: 16 }}>{resultMessage.emoji}</div>
-            <h2 style={{ fontSize: 32, fontWeight: 800, color: resultMessage.color, marginBottom: 8 }}>
-              {resultMessage.title}
-            </h2>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 28 }}>
-              {resultMessage.message}
-            </p>
-            
-            <div style={{
-              display: 'flex', justifyContent: 'center', gap: 24, marginBottom: 28,
-              padding: '12px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
-            }}>
-              <div><span style={{ color: '#ff4d6d', fontSize: 18 }}>❌</span><p style={{ fontSize: 24, fontWeight: 700 }}>{scores.X || 0}</p></div>
-              <div><span style={{ fontSize: 18 }}>🤝</span><p style={{ fontSize: 24, fontWeight: 700 }}>{scores.draw || 0}</p></div>
-              <div><span style={{ color: '#4d9fff', fontSize: 18 }}>⭕</span><p style={{ fontSize: 24, fontWeight: 700 }}>{scores.O || 0}</p></div>
-            </div>
-            
-            <button onClick={handlePlayAgain} disabled={resetting} style={{
-              width: '100%', padding: '14px', borderRadius: 16,
-              background: resultMessage.color, color: '#0a0a0f',
-              border: 'none', fontWeight: 800, fontSize: 16, cursor: 'pointer',
-              marginBottom: 10, transition: 'transform 0.15s',
-            }}>
-              {resetting ? '🔄 Starting New Round...' : '🔄 Play Again'}
-            </button>
-            <button onClick={handleLeave} style={{
-              width: '100%', padding: '12px', borderRadius: 16,
-              background: 'transparent', color: 'var(--text-muted)',
-              border: '1px solid var(--border)', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-            }}>
-              🏠 Back to Lobby
-            </button>
+          {modeConfig?.icon} {modeConfig?.name} Mode
+          {isSuddenDeath && <span style={{ marginLeft: 4 }}>⚔️ No Draws!</span>}
+        </span>
+      </div>
+
+      {/* Result Modal */}
+     {showResultModal && (
+  <ResultModal
+    resultMessage={resultMessage}
+    scores={scores}
+    onPlayAgain={handlePlayAgain}
+    onLeave={handleLeave}
+    resetting={resetting}
+  />
+)}
+
+      {/* Power Up Modal */}
+      <PowerUpModal
+        powerUp={currentPowerUp}
+        onUse={handlePowerUpUse}
+        onClose={closePowerUpModal}
+      />
+
+      {/* Header */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 12, margin: 0 }}>Game #{gameId}</p>
+            <p style={{ fontSize: 14, fontWeight: 'bold', margin: 0 }}>You are: <span style={{ color: myRole === 'X' ? '#ff4d6d' : '#4d9fff' }}>{myRole}</span></p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => { soundService.setMuted(!soundService.isMuted()); window.dispatchEvent(new Event('storage')); }}
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 18 }}
+            title={soundService.isMuted() ? 'Unmute' : 'Mute'}
+          >{soundService.isMuted() ? '🔇' : '🔊'}</button>
+          
+          <button
+            onClick={() => setShowShop(true)}
+            style={{ background: 'linear-gradient(135deg, #ffcc4d20, transparent)', border: '1px solid #ffcc4d', borderRadius: 12, padding: '0 16px', height: 40, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#ffcc4d', fontWeight: 700, fontSize: 14 }}
+          >
+            🪙 Shop
+          </button>
+
+          <button onClick={handleLeave} className="btn btn-ghost">Exit</button>
+        </div>
+      </header>
+
+      {/* Shop Modal */}
+      {showShop && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', padding: 20 }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
+            <button onClick={() => setShowShop(false)} style={{ position: 'absolute', top: -40, right: 0, background: 'none', border: 'none', color: 'white', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            <Shop onPurchase={(item) => { handlePurchase(item); setShowShop(false); }} />
           </div>
         </div>
       )}
-
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <button onClick={handleLeave} className="btn btn-ghost">← Leave</button>
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ fontSize: 12, margin: 0 }}>Game #{gameId}</p>
-          <p style={{ fontSize: 14, fontWeight: 'bold', margin: 0 }}>You are: <span style={{ color: myRole === 'X' ? '#ff4d6d' : '#4d9fff' }}>{myRole}</span></p>
-        </div>
-        <div className={`status-dot ${game.status === 'playing' ? 'status-dot-green' : 'status-dot-yellow'}`} />
-      </div>
 
       {/* Scores */}
       <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 20, padding: 12, background: 'var(--bg-card)', borderRadius: 12 }}>
@@ -368,59 +222,50 @@ export default function GameRoom() {
 
       {/* Turn Indicator with Timer */}
       {game.status === 'playing' && !gameEnded && (
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{
-            display: 'inline-block', padding: '8px 24px', borderRadius: 30,
-            background: isMyTurn ? 'rgba(77,255,170,0.2)' : 'rgba(255,255,255,0.05)',
-            border: isMyTurn ? '1px solid #4dffaa' : '1px solid var(--border)',
-          }}>
-            <div>{isMyTurn ? '🎯 YOUR TURN' : `⏳ ${game.currentTurn}'s turn...`}</div>
-            {isMyTurn && (
-              <div style={{ fontSize: 24, fontWeight: 'bold', marginTop: 4, color: timeRemaining <= 10 ? '#ff4d6d' : '#4dffaa' }}>
-                {timeRemaining}s
-              </div>
-            )}
-          </div>
-        </div>
+        <TurnIndicator
+          isMyTurn={isMyTurn}
+          currentTurn={game.currentTurn}
+          playerNames={game.playerNames}
+          timeRemaining={timeRemaining}
+          timeBank={timeBank}
+          gameMode={gameMode}
+          myRole={myRole}
+        />
       )}
 
       {/* Game Board */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10,
-        aspectRatio: '1/1', marginBottom: 20,
-      }}>
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => {
-          const cellValue = board[i];
-          return (
-            <button key={i} onClick={() => handleMove(i)}
-              disabled={!isMyTurn || cellValue !== null || game.status !== 'playing' || gameEnded}
-              style={{
-                aspectRatio: '1', fontSize: 'min(8vw, 48px)', fontWeight: 'bold',
-                background: cellValue === 'X' ? 'rgba(255,77,109,0.15)' : cellValue === 'O' ? 'rgba(77,159,255,0.15)' : 'var(--bg-elevated)',
-                border: cellValue === 'X' ? '2px solid rgba(255,77,109,0.5)' : cellValue === 'O' ? '2px solid rgba(77,159,255,0.5)' : '2px solid var(--border)',
-                borderRadius: 12, color: cellValue === 'X' ? '#ff4d6d' : cellValue === 'O' ? '#4d9fff' : 'transparent',
-                cursor: (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) ? 'pointer' : 'default',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                if (!cellValue && isMyTurn && game.status === 'playing' && !gameEnded) {
-                  e.currentTarget.style.transform = 'scale(1.02)';
-                  e.currentTarget.style.borderColor = myRole === 'X' ? '#ff4d6d' : '#4d9fff';
-                }
-              }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}>
-              {cellValue || ''}
-            </button>
-          );
-        })}
+      <div style={{ width: '100%', marginBottom: 20 }}>
+        <GameBoard
+          board={board}
+          onMove={handleMove}
+          winLine={game.winLine}
+          disabled={!isMyTurn || game.status !== 'playing' || gameEnded}
+          currentTurn={game.currentTurn}
+          moveHistory={moveHistory}
+          gameMode={gameMode}
+        />
       </div>
 
+      {/* Power Up Active Indicator */}
+      {showPowerUpModal && !currentPowerUp && (
+        <div style={{ textAlign: 'center', marginBottom: 12 }}>
+          <span className="power-up-active" style={{ fontSize: 12, color: '#bf4dff' }}>
+            ✨ Power Up Active! ✨
+          </span>
+        </div>
+      )}
+
+      {/* Emoji Reactions */}
+      {game.status === 'playing' && (
+        <EmojiReactions
+          gameId={gameId}
+          myRole={myRole}
+          opponentName={game.playerNames?.[myRole === 'X' ? 'O' : 'X']}
+        />
+      )}
+
       {/* Floating Chat Button */}
-      <FloatingChat 
-        gameId={gameId} 
-        playerId={playerId} 
-        playerName={myName}
-      />
+      <FloatingChat gameId={gameId} playerId={playerId} playerName={myName} />
     </div>
   );
 }

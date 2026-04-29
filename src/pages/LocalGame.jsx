@@ -1,8 +1,14 @@
-// LocalGame.jsx — Two players on same device (board-priority layout)
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameBoard from '../components/GameBoard';
-import { createEmptyBoard, makeMove, getGameResult } from '../utils/gameLogic';
+import GameModeSelector from '../components/GameModeSelector';
+import { 
+  createEmptyBoard, makeMove, getGameResult, 
+  getNextPlayer 
+} from '../utils/gameLogic';
+import { updateChallengeProgress } from '../lib/game/challengeService';
+import soundService from '../lib/soundService';
+import themeService from '../lib/themeService';
 
 // ── Simple Result Modal ─────────────────
 function ResultModal({ result, winnerName, onRestart, onMenu }) {
@@ -47,7 +53,7 @@ function ResultModal({ result, winnerName, onRestart, onMenu }) {
 }
 
 // ── Settings Dropdown (simple select) ────
-function SettingsDropdown({ names, setNames, scores, onResetScores }) {
+function SettingsDropdown({ names, setNames, scores, onResetScores, gameMode, setGameMode, boardSize, setBoardSize }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -113,7 +119,7 @@ function SettingsDropdown({ names, setNames, scores, onResetScores }) {
               maxLength={16}
             />
           </div>
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 11, color: 'var(--accent-o)', display: 'block', marginBottom: 4 }}>
               Player O
             </label>
@@ -128,6 +134,44 @@ function SettingsDropdown({ names, setNames, scores, onResetScores }) {
               maxLength={16}
             />
           </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <GameModeSelector
+              selectedMode={gameMode}
+              onSelectMode={(m) => {
+                setGameMode(m);
+                onResetScores();
+              }}
+              disabled={false}
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+              Board Size
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[3, 4, 5].map(size => (
+                <button
+                  key={size}
+                  onClick={() => {
+                    setBoardSize(size);
+                    onResetScores();
+                  }}
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: 8,
+                    background: boardSize === size ? 'var(--accent-x)' : 'var(--bg-elevated)',
+                    color: boardSize === size ? 'white' : 'var(--text-primary)',
+                    border: `1px solid ${boardSize === size ? 'transparent' : 'var(--border)'}`,
+                    fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  }}
+                >
+                  {size}x{size}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             onClick={() => {
               onResetScores();
@@ -155,32 +199,74 @@ export default function LocalGame() {
   const [winLine, setWinLine] = useState([]);
   const [scores, setScores] = useState({ X: 0, O: 0, draw: 0 });
   const [names, setNames] = useState({ X: 'Player X', O: 'Player O' });
+  const [gameMode, setGameMode] = useState(GAME_MODES.CLASSIC);
+  const [moveHistory, setMoveHistory] = useState({ X: [], O: [] });
+  const [lastWinner, setLastWinner] = useState(null);
 
   const handleMove = useCallback((index) => {
     if (result) return;
     const newBoard = makeMove(board, index, currentTurn);
     if (!newBoard) return;
+    soundService.move();
 
-    const gameResult = getGameResult(newBoard);
+    let newMoveHistory = { ...moveHistory };
+    if (gameMode === GAME_MODES.SUDDEN_DEATH) {
+      newMoveHistory[currentTurn] = [...newMoveHistory[currentTurn], index];
+      if (newMoveHistory[currentTurn].length > 3) {
+        const oldestMove = newMoveHistory[currentTurn].shift();
+        newBoard[oldestMove] = null;
+      }
+      setMoveHistory(newMoveHistory);
+    }
+
+    let gameResult = getGameResult(newBoard);
+    
+    // In Sudden Death, draws are impossible.
+    if (gameResult && gameResult.winner === 'draw' && gameMode === GAME_MODES.SUDDEN_DEATH) {
+      gameResult = null;
+    }
+    
     setBoard(newBoard);
 
     if (gameResult) {
       setResult(gameResult);
       setWinLine(gameResult.line || []);
+      setLastWinner(gameResult.winner);
       setScores(s => ({
         ...s,
         [gameResult.winner]: (s[gameResult.winner] || 0) + 1,
       }));
+
+      // Update challenges
+      const size = Math.sqrt(newBoard.length);
+      if (gameResult.winner === 'X') { // Local: just update for X as "player"
+        updateChallengeProgress('win', { size });
+        if (gameMode === GAME_MODES.SUDDEN_DEATH) {
+          updateChallengeProgress('mode', { mode: 'sudden_death' });
+        }
+      }
+      updateChallengeProgress('play');
+
+      // Play result sound
+      setTimeout(() => {
+        if (gameResult.winner === 'draw') soundService.draw();
+        else soundService.win();
+      }, 100);
     } else {
       setCurrentTurn(t => t === 'X' ? 'O' : 'X');
     }
-  }, [board, currentTurn, result]);
+  }, [board, currentTurn, result, gameMode, moveHistory]);
 
   const handleRestart = () => {
-    setBoard(createEmptyBoard());
+    setBoard(createEmptyBoard(Math.sqrt(board.length)));
     setResult(null);
     setWinLine([]);
-    setCurrentTurn('X');
+    setMoveHistory({ X: [], O: [] });
+    // Loser starts next round: if lastWinner is X, O lost so O starts, and vice versa
+    const nextStart = lastWinner && lastWinner !== 'draw'
+      ? (lastWinner === 'X' ? 'O' : 'X')
+      : currentTurn;
+    setCurrentTurn(nextStart);
   };
 
   const resetScores = () => {
@@ -247,6 +333,15 @@ export default function LocalGame() {
             setNames={setNames}
             scores={scores}
             onResetScores={resetScores}
+            gameMode={gameMode}
+            setGameMode={setGameMode}
+            boardSize={Math.sqrt(board.length)}
+            setBoardSize={(s) => {
+              setBoard(createEmptyBoard(s));
+              setMoveHistory({ X: [], O: [] });
+              setResult(null);
+              setWinLine([]);
+            }}
           />
         </div>
 
@@ -320,6 +415,8 @@ export default function LocalGame() {
             disabled={!!result}
             result={result}
             currentTurn={currentTurn}
+            moveHistory={moveHistory}
+            gameMode={gameMode}
           />
         </div>
 

@@ -2,21 +2,91 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #0a0a0f;
-  --bg-card: #111118;
-  --bg-elevated: #16161f;
-  --border: #2a2a3a;
-  --border-bright: #3a3a5a;
-  --text-primary: #f0f0ff;
-  --text-secondary: #8888aa;
-  --text-muted: #55556a;
+  --bg-primary: #050508;
+  --bg-card: rgba(15, 15, 25, 0.7);
+  --bg-elevated: #0f0f18;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.15);
+  --text-primary: #f8f8ff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
   --accent-x: #ff4d6d;
   --accent-o: #4d9fff;
   --accent-x-glow: rgba(255, 77, 109, 0.4);
   --accent-o-glow: rgba(77, 159, 255, 0.4);
   --success: #4dffaa;
   --warning: #ffcc4d;
-  --radius: 12px;
+  --radius: 20px;
+  --glass: rgba(255, 255, 255, 0.02);
+}
+
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.floating {
+  animation: float 4s ease-in-out infinite;
+}
+
+.responsive-bento {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.bento-span-2 {
+  grid-column: span 2;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24;
+  margin-bottom: 40px;
+}
+
+@media (max-width: 1024px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hero-grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 32px;
+}
+
+.bento-btn {
+  flex-direction: row;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .hero-grid-container {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .responsive-bento {
+    grid-template-columns: 1fr;
+  }
+  .bento-span-2 {
+    grid-column: span 1;
+  }
+  .bento-btn {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 20px !important;
+  }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -204,3 +274,61 @@ button:active {
   transform: scale(0.98) !important;
   opacity: 0.8;
 }
+
+/* ── Emoji Reaction Float-Up Animation ───────────────────── */
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: 1; transform: translateY(-80px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-130px) scale(0.8); }
+}
+
+/* ── Vanishing Piece (about to disappear warning) ──────────── */
+@keyframes vanishing-pulse {
+  0%, 100% { opacity: 1; box-shadow: none; }
+  50% { opacity: 0.35; box-shadow: 0 0 16px rgba(255,204,77,0.6); border-color: #ffcc4d !important; }
+}
+.cell-vanishing {
+  animation: vanishing-pulse 0.85s ease-in-out infinite;
+}
+
+/* ── Theme: Neon glow board ────────────────────────────────── */
+[data-theme="neon"] .cell-x { text-shadow: 0 0 16px var(--accent-x); }
+[data-theme="neon"] .cell-o { text-shadow: 0 0 16px var(--accent-o); }
+[data-theme="neon"] body::before {
+  background-image: linear-gradient(rgba(100,100,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100,100,255,0.04) 1px, transparent 1px);
+}
+
+/* ── Theme: Space starfield ─────────────────────────────────── */
+[data-theme="space"] body::before {
+  background-image: radial-gradient(circle, rgba(200,220,255,0.08) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+/* ── Theme: Wood texture ────────────────────────────────────── */
+[data-theme="wood"] .cell {
+  border-color: var(--border-bright);
+}
+
+/* ── Theme: Light mode override ─────────────────────────────── */
+[data-theme="light"] body::before {
+  background-image: linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+}
+
+/* ── Rank Badge ─────────────────────────────────────────────── */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 800;
+  border: 1px solid;
+}
+.rank-bronze   { color: #cd7f32; border-color: #cd7f3244; background: #cd7f3212; }
+.rank-silver   { color: #aaaaaa; border-color: #aaaaaa44; background: #aaaaaa12; }
+.rank-gold     { color: #ffd700; border-color: #ffd70044; background: #ffd70012; }
+.rank-platinum { color: #44ffee; border-color: #44ffee44; background: #44ffee12; }
+.rank-diamond  { color: #bf4dff; border-color: #bf4dff44; background: #bf4dff12; }

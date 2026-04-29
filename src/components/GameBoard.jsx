@@ -1,7 +1,7 @@
-// src/components/GameBoard.jsx
 import Cell from './Cell';
+import { GAME_MODES } from '../lib/game';
 
-export default function GameBoard({ board, onMove, winLine, disabled, result, currentTurn }) {
+export default function GameBoard({ board, onMove, winLine, disabled, result, currentTurn, moveHistory, gameMode }) {
   // Safety check
   if (!board || !Array.isArray(board)) {
     return (
@@ -23,26 +23,29 @@ export default function GameBoard({ board, onMove, winLine, disabled, result, cu
   }
 
   const handleCellClick = (index) => {
-    console.log('GameBoard: Cell clicked', index);
-    console.log('onMove exists?', !!onMove);
     if (onMove) {
       onMove(index);
-    } else {
-      console.error('onMove is not defined!');
     }
   };
 
+  const size = Math.sqrt(board.length);
+  const vanishingCells = new Set();
+  if (gameMode === GAME_MODES.SUDDEN_DEATH && moveHistory) {
+    if (moveHistory.X?.length >= 3) vanishingCells.add(moveHistory.X[0]);
+    if (moveHistory.O?.length >= 3) vanishingCells.add(moveHistory.O[0]);
+  }
+
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: 400, margin: '0 auto' }}>
+    <div style={{ position: 'relative', width: '100%', maxWidth: size * 100, margin: '0 auto' }}>
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '12px',
+        gridTemplateColumns: `repeat(${size}, 1fr)`,
+        gap: size > 3 ? '8px' : '12px',
         width: '100%',
         aspectRatio: '1/1',
-        background: 'var(--bg-card)',
+        background: 'var(--board-bg, var(--bg-card))',
         borderRadius: 20,
-        padding: '12px',
+        padding: size > 3 ? '8px' : '12px',
         boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
         border: '1px solid var(--border)',
       }}>
@@ -53,6 +56,7 @@ export default function GameBoard({ board, onMove, winLine, disabled, result, cu
             index={i}
             onClick={handleCellClick}
             isWinner={winLine?.includes(i)}
+            isVanishing={vanishingCells.has(i)}
             disabled={disabled || !!result}
             currentTurn={currentTurn}
           />

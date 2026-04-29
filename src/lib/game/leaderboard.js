@@ -1,5 +1,5 @@
 // src/lib/game/leaderboard.js
-import { ref, get, update, onValue } from '../firebase';
+import { ref, get, update, onValue,db } from '../firebase';
 
 // Achievements
 export const ACHIEVEMENTS = {
@@ -15,7 +15,13 @@ export const ACHIEVEMENTS = {
   POWER_UP_MASTER: { id: 'power_up_master', name: 'Power Up Master', desc: 'Use 10 power ups', icon: '✨', points: 40 }
 };
 
-// Update player stats with achievements and game mode tracking
+// ELO Calculation
+function calculateELO(ratingA, ratingB, scoreA, kFactor = 32) {
+  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+  return Math.round(ratingA + kFactor * (scoreA - expectedA));
+}
+
+// Update player stats with achievements, ELO, and game mode tracking
 export async function updatePlayerStats(winner, loser, isDraw = false, gameMode = 'classic') {
   const winnerId = winner?.playerId;
   const winnerName = winner?.playerName;
@@ -25,102 +31,87 @@ export async function updatePlayerStats(winner, loser, isDraw = false, gameMode 
   const updates = {};
   const achievements = [];
   
-  if (!isDraw && winnerId) {
+  if (winnerId && loserId) {
     const winnerRef = ref(db, `leaderboard/${winnerId}`);
-    const winnerSnapshot = await get(winnerRef);
-    let winnerStats = winnerSnapshot.val() || {
-      playerId: winnerId,
-      playerName: winnerName,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      totalGames: 0,
-      winStreak: 0,
-      bestWinStreak: 0,
-      achievements: [],
-      modeWins: {},
-      lastUpdated: Date.now()
-    };
+    const loserRef = ref(db, `leaderboard/${loserId}`);
+    const [winnerSnap, loserSnap] = await Promise.all([get(winnerRef), get(loserRef)]);
     
-    // Update win streak
-    const newWinStreak = (winnerStats.winStreak || 0) + 1;
+    const winnerStats = winnerSnap.val() || { wins: 0, losses: 0, draws: 0, totalGames: 0, winStreak: 0, elo: 1200, achievements: [], modeWins: {}, coins: 0 };
+    const loserStats = loserSnap.val() || { wins: 0, losses: 0, draws: 0, totalGames: 0, winStreak: 0, elo: 1200, achievements: [], modeWins: {}, coins: 0 };
     
-    // Check achievements
-    if (winnerStats.totalGames === 0) achievements.push('FIRST_BLOOD');
-    if (newWinStreak === 3) achievements.push('WIN_STREAK_3');
-    if (newWinStreak === 5) achievements.push('WIN_STREAK_5');
-    if (newWinStreak === 10) achievements.push('WIN_STREAK_10');
+    const winRating = winnerStats.elo || 1200;
+    const loseRating = loserStats.elo || 1200;
     
-    // Game mode specific tracking
-    const modeWins = winnerStats.modeWins || {};
-    modeWins[gameMode] = (modeWins[gameMode] || 0) + 1;
-    
-    if (gameMode === 'sudden_death' && modeWins.sudden_death === 3) achievements.push('SUDDEN_DEATH_MASTER');
-    if (gameMode === 'blitz' && modeWins.blitz === 5) achievements.push('BLITZ_CHAMPION');
-    
-    updates[`leaderboard/${winnerId}`] = {
-      ...winnerStats,
-      playerName: winnerName,
-      wins: (winnerStats.wins || 0) + 1,
-      totalGames: (winnerStats.totalGames || 0) + 1,
-      winStreak: newWinStreak,
-      bestWinStreak: Math.max(winnerStats.bestWinStreak || 0, newWinStreak),
-      modeWins: modeWins,
-      achievements: [...new Set([...(winnerStats.achievements || []), ...achievements])],
-      lastUpdated: Date.now()
-    };
-    
-    // Update loser stats
-    if (loserId) {
-      const loserRef = ref(db, `leaderboard/${loserId}`);
-      const loserSnapshot = await get(loserRef);
-      const loserStats = loserSnapshot.val() || {
-        playerId: loserId,
-        playerName: loserName,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        totalGames: 0,
-        winStreak: 0,
-        bestWinStreak: 0,
-        achievements: [],
-        modeWins: {},
+    let newWinRating, newLoseRating;
+    if (isDraw) {
+      newWinRating = calculateELO(winRating, loseRating, 0.5);
+      newLoseRating = calculateELO(loseRating, winRating, 0.5);
+    } else {
+      newWinRating = calculateELO(winRating, loseRating, 1);
+      newLoseRating = calculateELO(loseRating, winRating, 0);
+    }
+
+    if (!isDraw) {
+      // Winner updates
+      const newWinStreak = (winnerStats.winStreak || 0) + 1;
+      if (winnerStats.totalGames === 0) achievements.push('FIRST_BLOOD');
+      if (newWinStreak === 3) achievements.push('WIN_STREAK_3');
+      if (newWinStreak === 5) achievements.push('WIN_STREAK_5');
+      if (newWinStreak === 10) achievements.push('WIN_STREAK_10');
+      
+      const modeWins = winnerStats.modeWins || {};
+      modeWins[gameMode] = (modeWins[gameMode] || 0) + 1;
+      if (gameMode === 'sudden_death' && modeWins.sudden_death === 3) achievements.push('SUDDEN_DEATH_MASTER');
+      if (gameMode === 'blitz' && modeWins.blitz === 5) achievements.push('BLITZ_CHAMPION');
+
+      updates[`leaderboard/${winnerId}`] = {
+        ...winnerStats,
+        playerId: winnerId,
+        playerName: winnerName,
+        wins: (winnerStats.wins || 0) + 1,
+        totalGames: (winnerStats.totalGames || 0) + 1,
+        winStreak: newWinStreak,
+        bestWinStreak: Math.max(winnerStats.bestWinStreak || 0, newWinStreak),
+        modeWins: modeWins,
+        achievements: [...new Set([...(winnerStats.achievements || []), ...achievements])],
+        elo: newWinRating,
+        coins: (winnerStats.coins || 0) + 50,
         lastUpdated: Date.now()
       };
-      
+
       updates[`leaderboard/${loserId}`] = {
         ...loserStats,
+        playerId: loserId,
         playerName: loserName,
         losses: (loserStats.losses || 0) + 1,
         totalGames: (loserStats.totalGames || 0) + 1,
         winStreak: 0,
+        elo: newLoseRating,
+        coins: (loserStats.coins || 0) + 5,
         lastUpdated: Date.now()
       };
-    }
-  } else if (isDraw && winnerId && loserId) {
-    const players = [winnerId, loserId];
-    for (const pid of players) {
-      const playerRef = ref(db, `leaderboard/${pid}`);
-      const playerSnapshot = await get(playerRef);
-      const playerStats = playerSnapshot.val() || {
-        playerId: pid,
-        playerName: pid === winnerId ? winnerName : loserName,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        totalGames: 0,
+    } else {
+      // Draw updates
+      updates[`leaderboard/${winnerId}`] = {
+        ...winnerStats,
+        playerId: winnerId,
+        playerName: winnerName,
+        draws: (winnerStats.draws || 0) + 1,
+        totalGames: (winnerStats.totalGames || 0) + 1,
         winStreak: 0,
-        bestWinStreak: 0,
-        achievements: [],
-        modeWins: {},
+        elo: newWinRating,
+        coins: (winnerStats.coins || 0) + 20,
         lastUpdated: Date.now()
       };
-      
-      updates[`leaderboard/${pid}`] = {
-        ...playerStats,
-        draws: (playerStats.draws || 0) + 1,
-        totalGames: (playerStats.totalGames || 0) + 1,
+      updates[`leaderboard/${loserId}`] = {
+        ...loserStats,
+        playerId: loserId,
+        playerName: loserName,
+        draws: (loserStats.draws || 0) + 1,
+        totalGames: (loserStats.totalGames || 0) + 1,
         winStreak: 0,
+        elo: newLoseRating,
+        coins: (loserStats.coins || 0) + 20,
         lastUpdated: Date.now()
       };
     }

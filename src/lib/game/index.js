@@ -14,9 +14,7 @@ export {
   GAME_MODES,
   GAME_CONFIG,
   POWER_UPS,
-  getRandomPowerUp,
-  usePowerUp,
-  checkSuddenDeathWinner
+  getRandomPowerUp
 } from './gameCore';
 
 // Chat functions
@@ -39,7 +37,7 @@ export {
   getLeaderboard,
   subscribeToLeaderboard,
   getPlayerStats,
-  getPlayerAchievements,  // ← Make sure this is exported
+  getPlayerAchievements,
   ACHIEVEMENTS
 } from './leaderboard';
 

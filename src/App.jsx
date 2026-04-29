@@ -1,4 +1,3 @@
-// src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './hooks/useAuth';
@@ -9,7 +8,11 @@ import OnlineMenu from './pages/OnlineMenu';
 import Matchmaking from './pages/Matchmaking';
 import GameRoom from './pages/GameRoom';
 import Leaderboard from './pages/Leaderboard';
+import Friends from './pages/Friends';
 import Login from './pages/Login';
+import Settings from './pages/Settings';
+// Init theme on app load
+import './lib/themeService';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -47,6 +50,8 @@ export default function App() {
         <Route path="/matchmaking" element={<PrivateRoute><Matchmaking /></PrivateRoute>} />
         <Route path="/game/:gameId" element={<PrivateRoute><GameRoom /></PrivateRoute>} />
         <Route path="/leaderboard" element={<PrivateRoute><Leaderboard /></PrivateRoute>} />
+        <Route path="/friends" element={<PrivateRoute><Friends /></PrivateRoute>} />
+        <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   );

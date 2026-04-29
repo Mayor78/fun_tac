@@ -1,7 +1,9 @@
-// Home.jsx — Main menu (clean & simple)
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import UserProfile from '../components/UserProfile';
+import soundService from '../lib/soundService';
+import { getDailyChallenges } from '../lib/game/challengeService';
 
 const MENU_ITEMS = [
   {
@@ -37,181 +39,223 @@ const MENU_ITEMS = [
     path: '/leaderboard',
     color: '#ffcc4d',
   },
+  {
+    id: 'friends',
+    label: 'Friends',
+    desc: 'Add friends & challenge them',
+    icon: '👥',
+    path: '/friends',
+    color: '#bf4dff',
+  },
 ];
 
 export default function Home() {
   const navigate = useNavigate();
   const { user, userName, userStats } = useAuth();
+  const [challenges, setChallenges] = useState([]);
+
+  useEffect(() => {
+    getDailyChallenges().then(setChallenges);
+  }, []);
 
   return (
     <div style={{
       minHeight: '100vh',
+      background: 'radial-gradient(circle at top left, #1e1e2e, var(--bg-primary))',
+      color: 'var(--text-primary)',
+      padding: '40px 20px',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
-      padding: '20px 16px',
-      position: 'relative',
     }}>
       
-      {/* User Profile - Top Right */}
-      <div style={{ position: 'absolute', top: '20px', right: '20px' }}>
-        <UserProfile />
-      </div>
+      {/* Dynamic Background Blobs */}
+      <div style={{ position: 'fixed', top: '-10%', left: '-10%', width: '40vw', height: '40vw', background: 'radial-gradient(circle, rgba(255,77,109,0.05) 0%, transparent 70%)', zIndex: 0, pointerEvents: 'none' }} />
+      <div style={{ position: 'fixed', bottom: '-10%', right: '-10%', width: '50vw', height: '50vw', background: 'radial-gradient(circle, rgba(77,159,255,0.05) 0%, transparent 70%)', zIndex: 0, pointerEvents: 'none' }} />
 
-      {/* Welcome Message - Top Left (optional) */}
-      {user && (
-        <div style={{ 
-          position: 'absolute', 
-          top: '20px', 
-          left: '20px',
-          background: 'var(--bg-elevated)',
-          padding: '6px 12px',
-          borderRadius: '20px',
-          border: '1px solid var(--border)',
-          fontSize: '12px',
-        }}>
-          👋 Welcome, <strong>{userName}</strong>
-          {userStats && (
-            <span style={{ marginLeft: '8px', color: '#4dffaa' }}>
-              🏆 {userStats.wins || 0} wins
-            </span>
-          )}
-        </div>
-      )}
+      <div className="hero-grid-container" style={{ maxWidth: 1200, width: '100%', zIndex: 1 }}>
+        
+        {/* Left Column: Profile & Dashboard */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          
+          {/* Header Section */}
+          <div>
+            <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
+              TIC<span style={{ color: 'var(--accent-x)' }}>·</span>TAC<br />
+              <span style={{ color: 'var(--accent-o)' }}>TOE</span> <span style={{ fontSize: 24, verticalAlign: 'middle', opacity: 0.5 }}>ULTIMATE</span>
+            </h1>
+            <p style={{ color: 'var(--text-secondary)', marginTop: 12, fontSize: 16 }}>
+              The most competitive way to play the classic.
+            </p>
+          </div>
 
-      {/* Simple Logo Section */}
-      <div style={{ textAlign: 'center', marginBottom: 40 }}>
-        {/* Mini Board Preview with Animation */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 40px)',
-          gap: 4,
-          margin: '0 auto 20px',
-          padding: 8,
-          borderRadius: 12,
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-          width: 'fit-content',
-        }}>
-          {['X', '', 'O', '', 'X', '', 'O', '', 'X'].map((v, i) => (
-            <div key={i} style={{
-              width: 40, 
-              height: 40, 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              borderRadius: 6, 
-              fontSize: 16, 
-              fontWeight: 800,
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
-              color: v === 'X' ? 'var(--accent-x)' : v === 'O' ? 'var(--accent-o)' : 'transparent',
-              animation: v ? `bounce-in 0.4s ${0.1 + i * 0.05}s both` : 'none',
-            }}>
-              {v}
+          {/* User Card */}
+          <div className="glass" style={{ padding: 32, borderRadius: 32, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 20, right: 20 }}>
+               <button
+                onClick={() => { soundService.move(); navigate('/settings'); }}
+                className="btn-ghost"
+                style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >⚙️</button>
             </div>
-          ))}
-        </div>
 
-        <h1 style={{
-          fontSize: 'clamp(28px, 7vw, 42px)',
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-          marginBottom: 8,
-        }}>
-          Tic<span style={{ color: 'var(--accent-x)' }}>·</span>Tac
-          <span style={{ color: 'var(--accent-o)' }}>·</span>Toe
-        </h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {user ? 'Ready to play?' : 'Sign in to play online!'}
-        </p>
-      </div>
-
-      {/* Menu Buttons - Clean & Simple */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        width: '100%',
-        maxWidth: 360,
-      }}>
-        {MENU_ITEMS.map((item, index) => (
-          <button
-            key={item.id}
-            onClick={() => navigate(item.path)}
-            style={{
-              width: '100%',
-              padding: '16px 20px',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-              animation: `fadeIn 0.3s ease ${index * 0.05}s both`,
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.borderColor = item.color;
-              e.currentTarget.style.background = `linear-gradient(135deg, ${item.color}08, transparent)`;
-              e.currentTarget.style.transform = 'translateX(4px)';
-              e.currentTarget.style.boxShadow = `0 4px 12px ${item.color}20`;
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.borderColor = 'var(--border)';
-              e.currentTarget.style.background = 'var(--bg-card)';
-              e.currentTarget.style.transform = 'translateX(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-            onTouchStart={e => e.currentTarget.style.transform = 'scale(0.98)'}
-            onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
-          >
-            <span style={{ fontSize: 28 }}>{item.icon}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ 
-                  fontSize: 16, 
-                  fontWeight: 700, 
-                  color: 'var(--text-primary)' 
-                }}>
-                  {item.label}
-                </span>
-                {item.badge && (
-                  <span style={{
-                    fontSize: 9, 
-                    padding: '2px 6px', 
-                    borderRadius: 12,
-                    background: 'rgba(255,204,77,0.15)', 
-                    color: 'var(--warning)',
-                    border: '1px solid rgba(255,204,77,0.2)', 
-                    fontWeight: 600,
-                  }}>
-                    {item.badge}
-                  </span>
-                )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: 'linear-gradient(135deg, var(--accent-x), var(--accent-o))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
+                {userName?.charAt(0).toUpperCase()}
               </div>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                {item.desc}
-              </p>
+              <div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Welcome back,</div>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>{userName}</div>
+              </div>
             </div>
-            <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>→</span>
-          </button>
-        ))}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>ELO RATING</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#4dffaa' }}>⚡ {userStats?.elo || 1200}</div>
+              </div>
+              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>COIN BALANCE</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#ffcc4d' }}>🪙 {userStats?.coins || 0}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Challenges Section */}
+          <div className="glass" style={{ padding: 32, borderRadius: 32 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 800 }}>Daily Tasks</h3>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>RESETS DAILY</span>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {challenges.map(c => (
+                <div key={c.id} style={{ 
+                  padding: 16, 
+                  borderRadius: 20, 
+                  background: c.completed ? 'rgba(77,255,170,0.05)' : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${c.completed ? 'rgba(77,255,170,0.2)' : 'rgba(255,255,255,0.05)'}`,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: c.completed ? '#4dffaa' : 'var(--text-primary)' }}>
+                        {c.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.desc}</div>
+                    </div>
+                    {c.completed ? (
+                      <span style={{ fontSize: 16 }}>✅</span>
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#ffcc4d', fontWeight: 800 }}>+{c.reward} 🪙</span>
+                    )}
+                  </div>
+                  {!c.completed && (
+                    <div style={{ height: 4, width: '100%', background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${(c.progress / c.goal) * 100}%`, 
+                        background: 'linear-gradient(90deg, var(--accent-x), var(--accent-o))', 
+                        borderRadius: 2,
+                        transition: 'width 1s ease'
+                      }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Game Modes Grid */}
+        <div className="responsive-bento" style={{ gridAutoRows: 'minmax(140px, auto)' }}>
+          {MENU_ITEMS.map((item, index) => {
+            const isLarge = item.id === 'online';
+            return (
+              <button
+                key={item.id}
+                onClick={() => { soundService.move(); navigate(item.path); }}
+                  className={`bento-btn ${isLarge ? 'bento-span-2' : ''}`}
+                  style={{
+                    padding: 24,
+                    borderRadius: 24,
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                  gap: 20,
+                  cursor: 'pointer',
+                  transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  textAlign: 'left'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-8px) scale(1.02)';
+                  e.currentTarget.style.borderColor = item.color;
+                  e.currentTarget.style.boxShadow = `0 20px 40px ${item.color}15`;
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                {/* Decorative Icon Background */}
+                <div style={{ 
+                  position: 'absolute', 
+                  bottom: -20, 
+                  right: -20, 
+                  fontSize: 120, 
+                  opacity: 0.05, 
+                  transform: 'rotate(-15deg)',
+                  pointerEvents: 'none'
+                }}>
+                  {item.icon}
+                </div>
+
+                <div style={{ zIndex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: isLarge ? 48 : 32 }}>{item.icon}</span>
+                    {item.badge && (
+                      <span style={{ padding: '4px 10px', borderRadius: 20, background: `${item.color}20`, color: item.color, fontSize: 10, fontWeight: 800 }}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  <h2 style={{ fontSize: isLarge ? 28 : 20, fontWeight: 800 }}>{item.label}</h2>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 200 }}>{item.desc}</p>
+                </div>
+
+                <div style={{ 
+                  width: 44, 
+                  height: 44, 
+                  borderRadius: '50%', 
+                  background: 'rgba(255,255,255,0.05)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: 20,
+                  color: 'var(--text-muted)'
+                }}>
+                  →
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Footer */}
-      <footer style={{
-        marginTop: 40,
-        textAlign: 'center',
-        fontSize: 11,
-        color: 'var(--text-muted)',
-      }}>
-        <p>🎮 Play Tic Tac Toe online with friends</p>
-        <p style={{ marginTop: 4 }}>Powered by React + Firebase</p>
-      </footer>
+      {/* Stats Footer */}
+      <div style={{ marginTop: 60, display: 'flex', gap: 40, opacity: 0.5, fontSize: 12, fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)' }} />
+          <span>942 PLAYERS ONLINE</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>VERSION 2.4.0</span>
+        </div>
+      </div>
     </div>
   );
 }

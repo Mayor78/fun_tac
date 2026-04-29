@@ -1,11 +1,7 @@
-// src/lib/game/gameCore.js
-import { ref, set, get, update, serverTimestamp, onValue } from '../firebase';
+import { ref, set, get, update, serverTimestamp,db, onValue } from '../firebase';
 import { generateGameId, getPlayerId, getPlayerName } from '../../utils/gameLogic';
 import { boardToArray, boardToObject, determineWinner } from './boardUtils';
 import { updatePlayerStats } from './leaderboard';
-// src/lib/game/chat.js
-import { db, push, query, orderByChild, limitToLast,} from '../firebase';
-// ... rest of the file
 
 // Game Modes
 export const GAME_MODES = {
@@ -38,38 +34,17 @@ export function getRandomPowerUp() {
   return powerUps[Math.floor(Math.random() * powerUps.length)];
 }
 
-// Sudden Death Winner Check
-export function checkSuddenDeathWinner(board, lastMoveIndex) {
-  if (!board || board.length !== 9) return null;
-  
-  const filledCount = board.filter(cell => cell !== null).length;
-  if (filledCount >= 9) {
-    const extendedWinLines = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8],
-      [0, 3, 6], [1, 4, 7], [2, 5, 8],
-      [0, 4, 8], [2, 4, 6],
-      [0, 1, 3, 4], [1, 2, 4, 5], [3, 4, 6, 7], [4, 5, 7, 8],
-      [0, 2, 6, 8]
-    ];
-    
-    for (const line of extendedWinLines) {
-      const marks = line.map(i => board[i]);
-      if (marks.every(m => m === 'X')) return { winner: 'X', line };
-      if (marks.every(m => m === 'O')) return { winner: 'O', line };
-    }
-  }
-  return null;
-}
+// Sudden death winner logic moved to utils/gameLogic.js
 
 // Create a new game with game mode
-export async function createGame(hostName, gameMode = GAME_MODES.CLASSIC) {
+export async function createGame(hostName, gameMode = GAME_MODES.CLASSIC, boardSize = 3) {
   const gameId = generateGameId();
   const playerId = getPlayerId();
   const playerName = hostName || getPlayerName() || 'Player 1';
 
   const gameData = {
     id: gameId,
-    board: {},
+    board: boardToObject(Array(boardSize * boardSize).fill(null)),
     players: { X: playerId, O: null },
     playerNames: { X: playerName, O: null },
     currentTurn: 'X',
@@ -86,7 +61,8 @@ export async function createGame(hostName, gameMode = GAME_MODES.CLASSIC) {
     gameMode: gameMode,
     powerUpsUsed: [],
     timeBank: GAME_CONFIG[gameMode]?.totalTime || null,
-    suddenDeathActive: false
+    suddenDeathActive: false,
+    moveHistory: { X: [], O: [] }
   };
 
   await set(ref(db, `games/${gameId}`), gameData);
@@ -133,8 +109,8 @@ export async function joinGame(gameId, guestName) {
 }
 
 // Make a move with game mode support
-export async function makeOnlineMove(gameId, boardArray, nextTurn, result, providedScores, powerUp = null) {
-  console.log('🎯 makeOnlineMove called:', { gameId, nextTurn, result, providedScores, powerUp });
+export async function makeOnlineMove(gameId, boardArray, nextTurn, result, providedScores, powerUp = null, newMoveHistory = null) {
+  console.log('🎯 makeOnlineMove called:', { gameId, nextTurn, result, providedScores, powerUp, newMoveHistory });
   
   const gameRef = ref(db, `games/${gameId}`);
   const snapshot = await get(gameRef);
@@ -155,13 +131,11 @@ export async function makeOnlineMove(gameId, boardArray, nextTurn, result, provi
     lastMoveTime: Date.now()
   };
 
-  let finalResult = result;
-  if (gameMode === GAME_MODES.SUDDEN_DEATH && !result) {
-    const suddenDeathResult = checkSuddenDeathWinner(boardArray);
-    if (suddenDeathResult) {
-      finalResult = suddenDeathResult;
-    }
+  if (newMoveHistory) {
+    updates.moveHistory = newMoveHistory;
   }
+
+  let finalResult = result;
 
   if (finalResult && finalResult.winner) {
     updates.status = 'finished';
@@ -192,26 +166,10 @@ export async function makeOnlineMove(gameId, boardArray, nextTurn, result, provi
 
   if (powerUp) {
     updates.powerUpsUsed = [...(currentGame.powerUpsUsed || []), powerUp];
-    updates.activePowerUp = powerUp;
   }
 
   await update(gameRef, updates);
   console.log('✅ Move saved successfully');
-}
-
-// Use a power up
-export async function usePowerUp(gameId, playerId, powerUpType) {
-  const gameRef = ref(db, `games/${gameId}`);
-  const snapshot = await get(gameRef);
-  const game = snapshot.val();
-  
-  if (!game) throw new Error('Game not found');
-  
-  await update(gameRef, {
-    activePowerUp: powerUpType,
-    powerUpUser: playerId,
-    updatedAt: serverTimestamp()
-  });
 }
 
 // Reset game
@@ -221,9 +179,20 @@ export async function resetGame(gameId) {
   if (!snapshot.exists()) throw new Error('Game not found');
   const game = snapshot.val();
   
+  // Loser of the previous round starts the next round
+  let nextTurn = 'X';
+  if (game.winner && game.winner !== 'draw') {
+    nextTurn = game.winner === 'X' ? 'O' : 'X';
+  } else {
+    // If it was a draw or no previous winner, swap from whoever went last
+    nextTurn = game.currentTurn === 'X' ? 'O' : 'X';
+  }
+
+  const size = game.boardSize || 3;
+  
   await update(gameRef, {
-    board: {},
-    currentTurn: 'X',
+    board: boardToObject(Array(size * size).fill(null)),
+    currentTurn: nextTurn,
     status: 'playing',
     winner: null,
     winLine: [],
@@ -231,7 +200,7 @@ export async function resetGame(gameId) {
     lastMoveTime: Date.now(),
     updatedAt: serverTimestamp(),
     suddenDeathActive: false,
-    activePowerUp: null
+    moveHistory: { X: [], O: [] }
   });
 }
 
@@ -280,7 +249,8 @@ export async function acceptRematch(oldGameId) {
     lastMoveTime: Date.now(),
     gameStartTime: Date.now(),
     gameMode: old.gameMode || GAME_MODES.CLASSIC,
-    suddenDeathActive: false
+    suddenDeathActive: false,
+    moveHistory: { X: [], O: [] }
   };
 
   await set(ref(db, `games/${newGameId}`), gameData);
@@ -303,68 +273,9 @@ export function subscribeToGame(gameId, callback) {
       return;
     }
     
-    const fullBoard = boardToArray(data.board);
+    const boardSize = data.boardSize || 3;
+    const fullBoard = boardToArray(data.board, boardSize);
     const updatedData = { ...data, board: fullBoard };
-    const gameMode = data.gameMode || GAME_MODES.CLASSIC;
-    
-    let result = determineWinner(fullBoard);
-    if (gameMode === GAME_MODES.SUDDEN_DEATH && !result) {
-      result = checkSuddenDeathWinner(fullBoard);
-    }
-    
-    if (result && data.status === 'playing') {
-      const newScores = { ...(data.scores || { X: 0, O: 0, draw: 0 }) };
-      if (result.winner === 'draw') {
-        newScores.draw = (newScores.draw || 0) + 1;
-      } else {
-        newScores[result.winner] = (newScores[result.winner] || 0) + 1;
-      }
-      
-      update(ref(db, `games/${gameId}`), {
-        status: 'finished',
-        winner: result.winner,
-        winLine: result.line || [],
-        scores: newScores,
-        updatedAt: serverTimestamp()
-      }).catch(console.error);
-      
-      callback({ ...updatedData, ...result, status: 'finished', scores: newScores });
-      return;
-    }
-    
-    if (data.status === 'playing' && data.lastMoveTime && !result) {
-      let timePerMove = 60;
-      if (gameMode === GAME_MODES.BLITZ) timePerMove = 10;
-      else if (gameMode === GAME_MODES.CLASSIC) timePerMove = 60;
-      else if (gameMode === GAME_MODES.POWER_UPS) timePerMove = 50;
-      else if (gameMode === GAME_MODES.SUDDEN_DEATH) timePerMove = 45;
-      
-      const timeSinceLastMove = (Date.now() - data.lastMoveTime) / 1000;
-      
-      if (timeSinceLastMove >= timePerMove) {
-        const currentPlayer = data.currentTurn;
-        const winner = currentPlayer === 'X' ? 'O' : 'X';
-        const newScores = { ...(data.scores || { X: 0, O: 0, draw: 0 }) };
-        newScores[winner] = (newScores[winner] || 0) + 1;
-        
-        update(ref(db, `games/${gameId}`), {
-          status: 'finished',
-          winner: winner,
-          winLine: [],
-          scores: newScores,
-          timeoutForfeit: currentPlayer,
-          updatedAt: serverTimestamp()
-        }).catch(console.error);
-        
-        callback({ ...updatedData, winner: winner, status: 'finished', scores: newScores });
-        return;
-      }
-      updatedData.timeRemaining = Math.max(0, timePerMove - timeSinceLastMove);
-    }
-    
-    if (gameMode === GAME_MODES.TIME_BANK && data.timeBank !== undefined) {
-      updatedData.timeBank = data.timeBank;
-    }
     
     callback(updatedData);
   });

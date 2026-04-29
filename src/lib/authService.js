@@ -18,25 +18,26 @@ async function saveUserToDatabase(user) {
   if (!user) return;
   
   try {
-    const userRef = ref(db, `users/${user.uid}`);
+    const userRef = ref(db, `leaderboard/${user.uid}`);
     const snapshot = await get(userRef);
     
     if (!snapshot.exists()) {
-      await set(ref(db, `users/${user.uid}`), {
-        uid: user.uid,
+      await set(ref(db, `leaderboard/${user.uid}`), {
+        playerId: user.uid,
+        playerName: user.displayName || user.email.split('@')[0],
         email: user.email,
-        displayName: user.displayName,
         createdAt: Date.now(),
-        stats: {
-          wins: 0,
-          losses: 0,
-          draws: 0,
-          totalGames: 0,
-          winStreak: 0,
-          bestWinStreak: 0
-        }
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        totalGames: 0,
+        winStreak: 0,
+        bestWinStreak: 0,
+        elo: 1200,
+        coins: 0,
+        achievements: []
       });
-      console.log('✅ User saved to database');
+      console.log('✅ User saved to leaderboard');
     }
   } catch (dbError) {
     console.warn('Could not save to DB:', dbError);
@@ -119,7 +120,7 @@ export function onAuthStateChange(callback) {
 // Get player stats
 export async function getPlayerStats(userId) {
   try {
-    const userRef = ref(db, `users/${userId}`);
+    const userRef = ref(db, `leaderboard/${userId}`);
     const snapshot = await get(userRef);
     return snapshot.exists() ? snapshot.val() : null;
   } catch (error) {

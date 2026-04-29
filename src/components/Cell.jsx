@@ -1,7 +1,7 @@
-// src/components/Cell.jsx
 import { useRef, useEffect } from 'react';
+import themeService from '../lib/themeService';
 
-export default function Cell({ value, index, onClick, isWinner, disabled }) {
+export default function Cell({ value, index, onClick, isWinner, isVanishing, disabled }) {
   const ref = useRef(null);
   const prevValue = useRef(null);
 
@@ -29,9 +29,13 @@ export default function Cell({ value, index, onClick, isWinner, disabled }) {
     'cell',
     value === 'X' ? 'cell-x' : value === 'O' ? 'cell-o' : '',
     isWinner ? 'cell-winner' : '',
+    isVanishing ? 'cell-vanishing' : '',
     value ? 'cell-filled' : '',
     disabled && !value ? 'cell-disabled' : '',
   ].filter(Boolean).join(' ');
+
+  const mark = themeService.getMark();
+  const displayValue = value === 'X' ? mark.x : value === 'O' ? mark.o : '';
 
   return (
     <button
@@ -54,7 +58,7 @@ export default function Cell({ value, index, onClick, isWinner, disabled }) {
         transition: 'all 0.2s ease',
       }}
     >
-      <span ref={ref}>{value || ''}</span>
+      <span ref={ref}>{displayValue}</span>
     </button>
   );
 }

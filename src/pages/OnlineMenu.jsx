@@ -111,12 +111,41 @@ function GameModeSelector({ selectedMode, onSelectMode, disabled }) {
   );
 }
 
+function BoardSizeSelector({ selectedSize, onSelectSize, disabled }) {
+  const sizes = [3, 4, 5];
+  return (
+    <div style={{ display: 'flex', gap: 10 }}>
+      {sizes.map(size => (
+        <button
+          key={size}
+          onClick={() => !disabled && onSelectSize(size)}
+          disabled={disabled}
+          style={{
+            flex: 1,
+            padding: '10px',
+            borderRadius: 12,
+            background: selectedSize === size ? 'var(--accent-x)' : 'var(--bg-elevated)',
+            color: selectedSize === size ? 'white' : 'var(--text-primary)',
+            border: `1px solid ${selectedSize === size ? 'transparent' : 'var(--border)'}`,
+            fontWeight: 700,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          {size}x{size}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function OnlineMenu() {
   const navigate = useNavigate();
   const { user, userName } = useAuth();
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState('');
   const [selectedMode, setSelectedMode] = useState(GAME_MODES.CLASSIC);
+  const [selectedSize, setSelectedSize] = useState(3);
 
   const playerName = userName || 'Player';
 
@@ -126,9 +155,9 @@ export default function OnlineMenu() {
       return; 
     }
     setLoading('create');
-    const toastId = toast.loading(`Creating ${GAME_CONFIG[selectedMode]?.name} game room...`);
+    const toastId = toast.loading(`Creating ${selectedSize}x${selectedSize} ${GAME_CONFIG[selectedMode]?.name} game...`);
     try {
-      const gameId = await createGame(playerName, selectedMode);
+      const gameId = await createGame(playerName, selectedMode, selectedSize);
       toast.success('Game created!', { id: toastId, duration: 2000 });
       navigate(`/game/${gameId}`, { 
         state: { role: 'X', playerName: playerName, gameMode: selectedMode } 
@@ -225,6 +254,18 @@ export default function OnlineMenu() {
         <GameModeSelector 
           selectedMode={selectedMode}
           onSelectMode={setSelectedMode}
+          disabled={!!loading}
+        />
+      </div>
+
+      {/* Board Size Selector */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-muted)' }}>
+          📐 Select Board Size
+        </div>
+        <BoardSizeSelector
+          selectedSize={selectedSize}
+          onSelectSize={setSelectedSize}
           disabled={!!loading}
         />
       </div>
