@@ -1,5 +1,4 @@
-// src/lib/game/matchmaking.js
-import { db, ref, set, get, remove, onValue, serverTimestamp } from '../firebase';
+import { db, ref, set, get, remove, onValue, serverTimestamp, runTransaction, update } from '../firebase';
 import { generateGameId, getPlayerId, getPlayerName } from '../../utils/gameLogic';
 import { createGame } from './gameCore';
 
@@ -118,4 +117,130 @@ export async function getQueueStatus(playerId) {
     console.error('Error getting queue status:', error);
     return { inQueue: false, data: null };
   }
+}
+
+// ─────────────────────────────────────────────
+// Global Challenges (Broadcasting)
+// ─────────────────────────────────────────────
+
+/**
+ * Broadcast a challenge to all active players.
+ */
+export async function broadcastChallenge(hostId, playerName, mode = 'classic', size = 3) {
+  const playerId = hostId || getPlayerId();
+  const name = playerName || getPlayerName() || 'Player';
+  const challengeId = `CH-${playerId.slice(-4)}-${Date.now().toString().slice(-4)}`;
+  
+  const challengeRef = ref(db, `global_challenges/${challengeId}`);
+  await set(challengeRef, {
+    id: challengeId,
+    hostId: playerId,
+    hostName: name,
+    mode,
+    size,
+    status: 'open',
+    timestamp: serverTimestamp()
+  });
+
+  return challengeId;
+}
+
+/**
+ * Subscribe to all open global challenges.
+ */
+export function subscribeToGlobalChallenges(callback, currentUserId) {
+  const challengesRef = ref(db, 'global_challenges');
+  return onValue(challengesRef, (snapshot) => {
+    const data = snapshot.val();
+    if (!data) {
+      callback([]);
+      return;
+    }
+    
+    // Use the provided ID or fallback to session ID
+    const myId = currentUserId || getPlayerId();
+    
+    // Filter for open challenges and convert to array
+    const challenges = Object.values(data)
+      .filter(c => c.status === 'open' && c.hostId !== myId)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    
+    callback(challenges);
+  });
+}
+
+/**
+ * Accept a global challenge using a transaction for concurrency safety.
+ */
+export async function acceptGlobalChallenge(challengeId, acceptorName) {
+  const playerId = getPlayerId();
+  const name = acceptorName || getPlayerName() || 'Guest';
+  const challengeRef = ref(db, `global_challenges/${challengeId}`);
+  
+  try {
+    const result = await runTransaction(challengeRef, (currentData) => {
+      if (currentData && currentData.status === 'open') {
+        // Claim the challenge
+        currentData.status = 'matched';
+        currentData.acceptorId = playerId;
+        currentData.acceptorName = name;
+        return currentData;
+      }
+      return; // Abort transaction
+    });
+
+    if (!result.committed) {
+      throw new Error('Match already taken by another player');
+    }
+
+    const challenge = result.snapshot.val();
+    const gameId = generateGameId();
+    
+    console.log('🤝 Challenge claimed! Creating game room:', gameId);
+
+    const gameData = {
+      id: gameId,
+      board: {},
+      players: { X: challenge.hostId, O: playerId },
+      playerNames: { X: challenge.hostName, O: name },
+      currentTurn: 'X',
+      status: 'playing',
+      winner: null,
+      winLine: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      scores: { X: 0, O: 0, draw: 0 },
+      lastMoveTime: Date.now(),
+      gameStartTime: Date.now(),
+      gameMode: challenge.mode,
+      boardSize: challenge.size,
+      broadcastMatch: true
+    };
+
+    // Create the actual game room
+    await set(ref(db, `games/${gameId}`), gameData);
+    
+    // Set match signal for the host
+    await set(ref(db, `match/${challenge.hostId}`), {
+      gameId,
+      role: 'X',
+      matchedAt: serverTimestamp()
+    });
+
+    // Update challenge with gameId so host knows where to go
+    await update(challengeRef, { gameId });
+
+    return { gameId, role: 'O' };
+  } catch (error) {
+    console.error('❌ Accept challenge failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Cancel a broadcasted challenge.
+ */
+export async function cancelGlobalChallenge(challengeId) {
+  if (!challengeId) return;
+  await remove(ref(db, `global_challenges/${challengeId}`));
 }

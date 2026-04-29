@@ -13,7 +13,8 @@ import {
   query,
   orderByChild,
   limitToLast,
-  serverTimestamp
+  serverTimestamp,
+  runTransaction
 } from 'firebase/database';
 import { 
   getAuth, 
@@ -22,6 +23,7 @@ import {
   signOut, 
   onAuthStateChanged, 
   updateProfile,
+  updatePassword,
   sendPasswordResetEmail
 } from 'firebase/auth';
 
@@ -68,7 +70,9 @@ export {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  runTransaction,
+  updatePassword
 };
 
 export default app;

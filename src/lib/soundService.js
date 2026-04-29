@@ -82,6 +82,12 @@ class SoundService {
     this._tone(900, 'sine', 0.1, 0.2, 0.08);
   }
 
+  notification() {
+    // Friendly "Ding-Dong" or "Ping"
+    this._tone(880, 'sine', 0.15, 0.3);
+    this._tone(1100, 'sine', 0.2, 0.2, 0.1);
+  }
+
   setMuted(val) {
     this.muted = val;
     localStorage.setItem('ttt_muted', val);

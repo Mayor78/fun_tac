@@ -6,12 +6,55 @@ import {
   signOut, 
   onAuthStateChanged, 
   updateProfile,
+  updatePassword,
   sendPasswordResetEmail,
   db,
   ref,
   set,
-  get
+  get,
+  update
 } from './firebase';
+
+/**
+ * Update user display name in both Auth and Database
+ */
+export async function updateUserProfile(displayName) {
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Not authenticated');
+
+    // Update Firebase Auth Profile
+    await updateProfile(user, { displayName });
+
+    // Update Database Leaderboard/User node
+    await update(ref(db, `leaderboard/${user.uid}`), { playerName: displayName });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Update profile error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Change user password
+ */
+export async function changePassword(newPassword) {
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Not authenticated');
+
+    await updatePassword(user, newPassword);
+    return { success: true };
+  } catch (error) {
+    console.error('Change password error:', error);
+    // Might fail due to recent login requirement
+    if (error.code === 'auth/requires-recent-login') {
+      return { success: false, error: 'Please logout and login again to change password' };
+    }
+    return { success: false, error: error.message };
+  }
+}
 
 // Save user to database helper
 async function saveUserToDatabase(user) {

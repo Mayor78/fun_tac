@@ -4,6 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 import UserProfile from '../components/UserProfile';
 import soundService from '../lib/soundService';
 import { getDailyChallenges } from '../lib/game/challengeService';
+import { logoutUser } from '../lib/authService';
+import ProfileEditModal from '../components/ProfileEditModal';
+import toast from 'react-hot-toast';
 
 const MENU_ITEMS = [
   {
@@ -29,7 +32,7 @@ const MENU_ITEMS = [
     icon: '🌐',
     path: '/online',
     color: 'var(--accent-x)',
-    badge: 'Firebase',
+    badge: '',
   },
   {
     id: 'leaderboard',
@@ -53,10 +56,20 @@ export default function Home() {
   const navigate = useNavigate();
   const { user, userName, userStats } = useAuth();
   const [challenges, setChallenges] = useState([]);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     getDailyChallenges().then(setChallenges);
   }, []);
+
+  const handleLogout = async () => {
+    soundService.move();
+    const res = await logoutUser();
+    if (res.success) {
+      toast.success('Logged out successfully');
+      navigate('/login');
+    }
+  };
 
   return (
     <div style={{
@@ -69,15 +82,21 @@ export default function Home() {
       alignItems: 'center',
     }}>
       
+      <ProfileEditModal 
+        isOpen={showEditModal} 
+        onClose={() => setShowEditModal(false)} 
+        currentName={userName}
+      />
+
       {/* Dynamic Background Blobs */}
       <div style={{ position: 'fixed', top: '-10%', left: '-10%', width: '40vw', height: '40vw', background: 'radial-gradient(circle, rgba(255,77,109,0.05) 0%, transparent 70%)', zIndex: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'fixed', bottom: '-10%', right: '-10%', width: '50vw', height: '50vw', background: 'radial-gradient(circle, rgba(77,159,255,0.05) 0%, transparent 70%)', zIndex: 0, pointerEvents: 'none' }} />
 
       <div className="hero-grid-container" style={{ maxWidth: 1200, width: '100%', zIndex: 1 }}>
-        
+
         {/* Left Column: Profile & Dashboard */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          
+
           {/* Header Section */}
           <div>
             <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
@@ -91,20 +110,33 @@ export default function Home() {
 
           {/* User Card */}
           <div className="glass" style={{ padding: 32, borderRadius: 32, position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: 20, right: 20 }}>
-               <button
+            <div style={{ position: 'absolute', top: 20, right: 20, display: 'flex', gap: 8 }}>
+              <button
                 onClick={() => { soundService.move(); navigate('/settings'); }}
                 className="btn-ghost"
+                title="Settings"
                 style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >⚙️</button>
+              <button
+                onClick={handleLogout}
+                className="btn-ghost"
+                title="Logout"
+                style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,77,109,0.1)', color: '#ff4d6d', border: '1px solid rgba(255,77,109,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >🚪</button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+            <div 
+              onClick={() => { soundService.move(); setShowEditModal(true); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, cursor: 'pointer' }}
+              title="Edit Profile"
+            >
               <div style={{ width: 64, height: 64, borderRadius: 20, background: 'linear-gradient(135deg, var(--accent-x), var(--accent-o))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
                 {userName?.charAt(0).toUpperCase()}
               </div>
               <div>
-                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Welcome back,</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Welcome back, <span style={{ fontSize: 10 }}>✏️</span>
+                </div>
                 <div style={{ fontSize: 24, fontWeight: 800 }}>{userName}</div>
               </div>
             </div>
@@ -127,12 +159,12 @@ export default function Home() {
               <h3 style={{ fontSize: 20, fontWeight: 800 }}>Daily Tasks</h3>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>RESETS DAILY</span>
             </div>
-            
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {challenges.map(c => (
-                <div key={c.id} style={{ 
-                  padding: 16, 
-                  borderRadius: 20, 
+                <div key={c.id} style={{
+                  padding: 16,
+                  borderRadius: 20,
                   background: c.completed ? 'rgba(77,255,170,0.05)' : 'rgba(255,255,255,0.02)',
                   border: `1px solid ${c.completed ? 'rgba(77,255,170,0.2)' : 'rgba(255,255,255,0.05)'}`,
                   transition: 'all 0.3s ease'
@@ -152,10 +184,10 @@ export default function Home() {
                   </div>
                   {!c.completed && (
                     <div style={{ height: 4, width: '100%', background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
-                      <div style={{ 
-                        height: '100%', 
-                        width: `${(c.progress / c.goal) * 100}%`, 
-                        background: 'linear-gradient(90deg, var(--accent-x), var(--accent-o))', 
+                      <div style={{
+                        height: '100%',
+                        width: `${(c.progress / c.goal) * 100}%`,
+                        background: 'linear-gradient(90deg, var(--accent-x), var(--accent-o))',
                         borderRadius: 2,
                         transition: 'width 1s ease'
                       }} />
@@ -175,14 +207,14 @@ export default function Home() {
               <button
                 key={item.id}
                 onClick={() => { soundService.move(); navigate(item.path); }}
-                  className={`bento-btn ${isLarge ? 'bento-span-2' : ''}`}
-                  style={{
-                    padding: 24,
-                    borderRadius: 24,
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
+                className={`bento-btn ${isLarge ? 'bento-span-2' : ''}`}
+                style={{
+                  padding: 24,
+                  borderRadius: 24,
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
                   gap: 20,
                   cursor: 'pointer',
                   transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
@@ -202,12 +234,12 @@ export default function Home() {
                 }}
               >
                 {/* Decorative Icon Background */}
-                <div style={{ 
-                  position: 'absolute', 
-                  bottom: -20, 
-                  right: -20, 
-                  fontSize: 120, 
-                  opacity: 0.05, 
+                <div style={{
+                  position: 'absolute',
+                  bottom: -20,
+                  right: -20,
+                  fontSize: 120,
+                  opacity: 0.05,
                   transform: 'rotate(-15deg)',
                   pointerEvents: 'none'
                 }}>
@@ -227,13 +259,13 @@ export default function Home() {
                   <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 200 }}>{item.desc}</p>
                 </div>
 
-                <div style={{ 
-                  width: 44, 
-                  height: 44, 
-                  borderRadius: '50%', 
-                  background: 'rgba(255,255,255,0.05)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.05)',
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 20,
                   color: 'var(--text-muted)'

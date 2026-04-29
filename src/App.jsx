@@ -13,6 +13,7 @@ import Login from './pages/Login';
 import Settings from './pages/Settings';
 // Init theme on app load
 import './lib/themeService';
+import ChallengeListener from './components/ChallengeListener';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -27,6 +28,7 @@ function PrivateRoute({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ChallengeListener />
       <Toaster
         position="top-center"
         toastOptions={{

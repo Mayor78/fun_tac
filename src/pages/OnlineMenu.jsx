@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createGame, joinGame, GAME_MODES, GAME_CONFIG } from '../lib/game';
+import { broadcastChallenge, subscribeToMatchmaking, cancelGlobalChallenge } from '../lib/game/matchmaking';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
 
@@ -146,8 +147,47 @@ export default function OnlineMenu() {
   const [loading, setLoading] = useState('');
   const [selectedMode, setSelectedMode] = useState(GAME_MODES.CLASSIC);
   const [selectedSize, setSelectedSize] = useState(3);
+  const [activeBroadcast, setActiveBroadcast] = useState(null);
 
   const playerName = userName || 'Player';
+
+  const handleBroadcast = async () => {
+    if (!playerName) { 
+      toast.error('Please login first'); 
+      return; 
+    }
+    setLoading('broadcast');
+    const toastId = toast.loading('Broadcasting challenge to all players...');
+    
+    try {
+      const challengeId = await broadcastChallenge(user.uid, playerName, selectedMode, selectedSize);
+      setActiveBroadcast(challengeId);
+      toast.success('Challenge broadcasted! Waiting for an opponent...', { id: toastId });
+      
+      // Listen for a match
+      const unsubscribe = subscribeToMatchmaking(user.uid, (match) => {
+        if (match.gameId) {
+          unsubscribe();
+          setActiveBroadcast(null);
+          navigate(`/game/${match.gameId}`, { 
+            state: { role: match.role, myName: playerName } 
+          });
+        }
+      });
+    } catch (e) {
+      toast.error('Broadcast failed: ' + e.message, { id: toastId });
+      setLoading('');
+    }
+  };
+
+  const handleCancelBroadcast = async () => {
+    if (activeBroadcast) {
+      await cancelGlobalChallenge(activeBroadcast);
+      setActiveBroadcast(null);
+      setLoading('');
+      toast.success('Broadcast cancelled');
+    }
+  };
 
   const handleCreate = async () => {
     if (!playerName) { 
@@ -197,7 +237,13 @@ export default function OnlineMenu() {
       toast.error('Please login first'); 
       return; 
     }
-    navigate('/matchmaking', { state: { playerName: playerName } });
+    navigate('/matchmaking', { 
+      state: { 
+        playerName: playerName,
+        mode: selectedMode,
+        size: selectedSize
+      } 
+    });
   };
 
   return (
@@ -373,7 +419,7 @@ export default function OnlineMenu() {
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 800 }}>Quick Match</h2>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                Auto-match with a random online player
+                Broadcast your challenge and search for online players
               </p>
             </div>
             <span style={{ fontSize: 32 }}>⚡</span>
@@ -381,17 +427,18 @@ export default function OnlineMenu() {
           <button
             onClick={handleSearch}
             disabled={!!loading}
-            className="btn btn-ghost"
+            className="btn btn-primary"
             style={{ 
               width: '100%', 
               padding: '14px',
               fontSize: 15,
               fontWeight: 700,
-              border: '1px solid rgba(255, 77, 109, 0.4)',
-              color: 'var(--accent-x)',
+              background: 'linear-gradient(135deg, var(--accent-x), var(--accent-o))',
+              color: 'white',
+              border: 'none'
             }}
           >
-            Search for Opponent →
+            Find a Match →
           </button>
         </div>
       </div>
@@ -411,6 +458,10 @@ export default function OnlineMenu() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(255,204,77,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#ffcc4d' }}>3</span>
             <span style={{ fontSize: 13 }}>Or use Quick Match to find a random opponent</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 24, height: 24, borderRadius: 12, background: 'rgba(191,77,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#bf4dff' }}>4</span>
+            <span style={{ fontSize: 13 }}>Or use Broadcast to alert all online players instantly</span>
           </div>
         </div>
       </div>

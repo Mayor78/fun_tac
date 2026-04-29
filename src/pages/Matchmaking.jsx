@@ -1,18 +1,35 @@
 // src/pages/Matchmaking.jsx - FIXED VERSION
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { joinMatchmaking, subscribeToMatchmaking, leaveMatchmaking, getQueueStatus } from '../lib/gameService';
+import { 
+  joinMatchmaking, 
+  subscribeToMatchmaking, 
+  leaveMatchmaking, 
+  getQueueStatus,
+  broadcastChallenge,
+  subscribeToGlobalChallenges,
+  acceptGlobalChallenge,
+  cancelGlobalChallenge
+} from '../lib/game/matchmaking';
+import { useAuth } from '../hooks/useAuth';
 import { getPlayerId } from '../utils/gameLogic';
 import toast from 'react-hot-toast';
 
 export default function Matchmaking() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const playerName = location.state?.playerName || 'Player';
+  const searchMode = location.state?.mode || 'classic';
+  const searchSize = location.state?.size || 3;
+  
   const [status, setStatus] = useState('initializing');
   const [dots, setDots] = useState('');
   const [waitingTime, setWaitingTime] = useState(0);
+  
   const unsubRef = useRef(null);
+  const unsubGlobalRef = useRef(null);
+  const broadcastIdRef = useRef(null);
   const timerRef = useRef(null);
   const timeIntervalRef = useRef(null);
   const cancelledRef = useRef(false);
@@ -39,64 +56,78 @@ export default function Matchmaking() {
   }, [status]);
 
   useEffect(() => {
-    const playerId = getPlayerId();
-    let isSubscribed = true;
-
+    if (!user) return;
+    const playerId = user.uid;
+    
     async function start() {
       if (cancelledRef.current || !isMounted.current) return;
       
       try {
         setStatus('connecting');
         
-        // Check if already in queue
-        const { inQueue } = await getQueueStatus(playerId);
-        if (inQueue && !cancelledRef.current) {
-          setStatus('searching');
-          
-          // Listen for match signal
-          unsubRef.current = subscribeToMatchmaking(playerId, (data) => {
-            if (cancelledRef.current || !isMounted.current) return;
-            if (data?.gameId) {
-              setStatus('matched');
-              toast.success('Opponent found!', { duration: 2000 });
-              setTimeout(() => {
-                navigate(`/game/${data.gameId}`, {
-                  state: { role: data.role || 'X', playerName }
-                });
-              }, 1000);
-            }
-          });
-          return;
-        }
-        
+        // 1. Join standard passive queue
         const result = await joinMatchmaking(playerName);
         
         if (cancelledRef.current || !isMounted.current) return;
 
+        // 2. If matched immediately via passive queue
         if (result.status === 'matched') {
           setStatus('matched');
+          toast.success('Opponent found!');
           setTimeout(() => {
             navigate(`/game/${result.gameId}`, {
-              state: { role: result.role, playerName }
+              state: { role: result.role, myName: playerName }
             });
           }, 1000);
-        } else if (result.status === 'queued') {
-          setStatus('searching');
-          
-          // Listen for match signal
-          unsubRef.current = subscribeToMatchmaking(playerId, (data) => {
-            if (cancelledRef.current || !isMounted.current) return;
-            if (data?.gameId) {
-              setStatus('matched');
-              toast.success('Opponent found!');
-              setTimeout(() => {
-                navigate(`/game/${data.gameId}`, {
-                  state: { role: data.role || 'X', playerName }
-                });
-              }, 1000);
-            }
-          });
+          return;
         }
+
+        // 3. Start ACTIVE broadcasting
+        setStatus('searching');
+        broadcastIdRef.current = await broadcastChallenge(playerId, playerName, searchMode, searchSize);
+
+        // 4. Listen for passive match signals (when someone joins our queue entry)
+        unsubRef.current = subscribeToMatchmaking(playerId, (data) => {
+          if (cancelledRef.current || !isMounted.current) return;
+          if (data?.gameId) {
+            console.log('🎯 Match signal received (Passive Queue)');
+            setStatus('matched');
+            cleanup();
+            toast.success('Opponent found!');
+            setTimeout(() => {
+              navigate(`/game/${data.gameId}`, {
+                state: { role: data.role || 'X', myName: playerName }
+              });
+            }, 800);
+          }
+        });
+
+        // 5. Listen for other broadcasts (Fast-lane Auto-Accept)
+        unsubGlobalRef.current = subscribeToGlobalChallenges(async (challenges) => {
+          if (status !== 'searching' || cancelledRef.current) return;
+          
+          // Find a challenge that matches our criteria
+          const match = challenges.find(c => 
+            c.mode === searchMode && 
+            c.size === searchSize && 
+            c.hostId !== playerId
+          );
+
+          if (match) {
+            console.log('⚡ Auto-matching with broadcast challenge:', match.hostName);
+            try {
+              // Try to claim it before someone else does
+              const { gameId, role } = await acceptGlobalChallenge(match.id, playerName);
+              setStatus('matched');
+              cleanup();
+              toast.success(`Matched with ${match.hostName}!`);
+              navigate(`/game/${gameId}`, { state: { role, myName: playerName } });
+            } catch (err) {
+              console.log('Failed to auto-accept (might be taken):', err.message);
+            }
+          }
+        }, playerId);
+
       } catch (e) {
         console.error('Matchmaking error:', e);
         if (isMounted.current && !cancelledRef.current) {
@@ -106,15 +137,24 @@ export default function Matchmaking() {
       }
     }
 
+    const cleanup = async () => {
+      if (unsubRef.current) unsubRef.current();
+      if (unsubGlobalRef.current) unsubGlobalRef.current();
+      if (broadcastIdRef.current) {
+        await cancelGlobalChallenge(broadcastIdRef.current);
+        broadcastIdRef.current = null;
+      }
+      await leaveMatchmaking();
+    };
+
     start();
 
     return () => {
       cancelledRef.current = true;
       isMounted.current = false;
-      if (unsubRef.current) unsubRef.current();
-      leaveMatchmaking();
+      cleanup();
     };
-  }, [navigate, playerName]);
+  }, [navigate, playerName, user, searchMode, searchSize]);
 
   const handleCancel = async () => {
     cancelledRef.current = true;
